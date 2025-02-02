@@ -7,7 +7,7 @@ import { ComparisonResult } from "./types";
 import theme from "./theme";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { analytics } from "./firebase";
-import { Typography } from "@mui/material";
+import { Box, List, ListItem, ListItemText, Typography } from "@mui/material";
 
 function App() {
   const [income, setIncome] = useState<string>("");
@@ -260,29 +260,94 @@ function App() {
                 <div className="bg-blue-50/50 p-5 rounded-lg text-sm border border-blue-100">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <h3 className="font-semibold text-blue-900 mb-3">
-                        2025 Old Tax Regime
-                      </h3>
-                      <ul className="list-disc pl-5 space-y-1.5 text-blue-800">
-                        <li>Income up to ₹2,50,000: 0%</li>
-                        <li>₹2,50,001 to ₹5,00,000: 5%</li>
-                        <li>₹5,00,001 to ₹10,00,000: 20%</li>
-                        <li>Above ₹10,00,001: 30%</li>
-                      </ul>
+                      <Typography variant="h6" gutterBottom>
+                        2025 Old Tax Regime:
+                      </Typography>
+                      <List>
+                        <ListItem>
+                          <ListItemText
+                            primary="Income up to ₹2,50,000"
+                            secondary="0%"
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText
+                            primary="₹2,50,001 to ₹5,00,000"
+                            secondary="5%"
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText
+                            primary="₹5,00,001 to ₹10,00,000"
+                            secondary="20%"
+                          />
+                        </ListItem>
+                        <ListItem>
+                          <ListItemText
+                            primary="Above ₹10,00,001"
+                            secondary="30%"
+                          />
+                        </ListItem>
+                      </List>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-blue-900 mb-3">
+                      <Typography
+                        variant="h6"
+                        gutterBottom
+                        className="font-semibold text-blue-900 mb-3"
+                      >
                         2025 New Tax Regime
-                      </h3>
-                      <ul className="list-disc pl-5 space-y-1.5 text-blue-800">
-                        <li>Income up to ₹4,00,000: 0%</li>
-                        <li>₹4,00,001 to ₹8,00,000: 5%</li>
-                        <li>₹8,00,001 to ₹12,00,000: 10%</li>
-                        <li>₹12,00,001 to ₹16,00,000: 15%</li>
-                        <li>₹16,00,001 to ₹20,00,000: 20%</li>
-                        <li>₹20,00,001 to ₹24,00,000: 25%</li>
-                        <li>Above ₹24,00,000: 30%</li>
-                      </ul>
+                      </Typography>
+                      <List
+                        sx={{
+                          listStyleType: "disc",
+                          pl: 5,
+                          color: "text.primary",
+                        }}
+                      >
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="Income up to ₹4,00,000"
+                            secondary="0%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="₹4,00,001 to ₹8,00,000"
+                            secondary="5%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="₹8,00,001 to ₹12,00,000"
+                            secondary="10%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="₹12,00,001 to ₹16,00,000"
+                            secondary="15%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="₹16,00,001 to ₹20,00,000"
+                            secondary="20%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="₹20,00,001 to ₹24,00,000"
+                            secondary="25%"
+                          />
+                        </ListItem>
+                        <ListItem sx={{ display: "list-item" }}>
+                          <ListItemText
+                            primary="Above ₹24,00,000"
+                            secondary="30%"
+                          />
+                        </ListItem>
+                      </List>
                     </div>
                   </div>
                   <div className="mt-4 space-y-2 border-t border-blue-100 pt-4 text-blue-700">
@@ -319,9 +384,26 @@ function App() {
           >
             GitHub Repository
           </a>
-          <Typography variant="body1" gutterBottom>
-            Total Visits: {visitCount}
-          </Typography>
+          <Box
+            sx={{
+              marginTop: "1rem",
+              padding: "1rem",
+              border: "2px solid #1976d2",
+              borderRadius: "8px",
+              backgroundColor: "#e3f2fd",
+              textAlign: "center",
+              width: "fit-content",
+              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
+            }}
+          >
+            <Typography
+              variant="h6"
+              gutterBottom
+              sx={{ color: "#1976d2", fontWeight: "bold" }}
+            >
+              Total Visits: {visitCount}
+            </Typography>
+          </Box>
         </footer>
       </div>
     </ThemeProvider>
