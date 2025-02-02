@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import { Calculator, HelpCircle, Heart } from "lucide-react";
 import { calculateTaxComparison } from "./utils/taxCalculator";
 import { TaxBreakdown } from "./components/TaxBreakdown";
 import { ComparisonResult } from "./types";
 import theme from "./theme";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { analytics } from "./firebase";
 import { Typography } from "@mui/material";
 
 function App() {
@@ -16,6 +18,26 @@ function App() {
   const [eightyD, setEightyD] = useState<string>("");
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+
+  const [visitCount, setVisitCount] = useState<number>(0);
+
+  useEffect(() => {
+    const incrementVisitCount = async () => {
+      const visitDocRef = doc(analytics, "visits", "totalVisits");
+      const visitDoc = await getDoc(visitDocRef);
+
+      if (visitDoc.exists()) {
+        const currentCount = visitDoc.data()?.count || 0;
+        await updateDoc(visitDocRef, { count: currentCount + 1 });
+        setVisitCount(currentCount + 1);
+      } else {
+        await setDoc(visitDocRef, { count: 1 });
+        setVisitCount(1);
+      }
+    };
+
+    incrementVisitCount();
+  }, []);
 
   const handleCalculate = () => {
     const incomeValue = parseFloat(income.replace(/,/g, ""));
@@ -91,7 +113,7 @@ function App() {
         <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 flex-grow">
           <div className="text-center">
             <Typography variant="h1" gutterBottom>
-              2025 Income Tax Calculator
+              2025-26 Income Tax Calculator (A.Y. 2026-27)
             </Typography>
             <p className="text-sm sm:text-base text-blue-700/80 max-w-2xl mx-auto">
               Compare your tax liability under the old and new tax regime
@@ -297,6 +319,9 @@ function App() {
           >
             GitHub Repository
           </a>
+          <Typography variant="body1" gutterBottom>
+            Total Visits: {visitCount}
+          </Typography>
         </footer>
       </div>
     </ThemeProvider>
