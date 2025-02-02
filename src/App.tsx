@@ -7,7 +7,10 @@ import { ComparisonResult } from "./types";
 import theme from "./theme";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { analytics } from "./firebase";
-import { Box, List, ListItem, ListItemText, Typography } from "@mui/material";
+import "./App.css";
+import { Box, Typography } from "@mui/material";
+import NewTaxSlabs from "./components/NewTaxSlabs";
+import OldTaxRegime from "./components/OldTaxSlabs";
 
 function App() {
   const [income, setIncome] = useState<string>("");
@@ -259,109 +262,28 @@ function App() {
               {showHelp && (
                 <div className="bg-blue-50/50 p-5 rounded-lg text-sm border border-blue-100">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <Typography variant="h6" gutterBottom>
-                        2025 Old Tax Regime:
-                      </Typography>
-                      <List>
-                        <ListItem>
-                          <ListItemText
-                            primary="Income up to ₹2,50,000"
-                            secondary="0%"
-                          />
-                        </ListItem>
-                        <ListItem>
-                          <ListItemText
-                            primary="₹2,50,001 to ₹5,00,000"
-                            secondary="5%"
-                          />
-                        </ListItem>
-                        <ListItem>
-                          <ListItemText
-                            primary="₹5,00,001 to ₹10,00,000"
-                            secondary="20%"
-                          />
-                        </ListItem>
-                        <ListItem>
-                          <ListItemText
-                            primary="Above ₹10,00,001"
-                            secondary="30%"
-                          />
-                        </ListItem>
-                      </List>
-                    </div>
-                    <div>
-                      <Typography
-                        variant="h6"
-                        gutterBottom
-                        className="font-semibold text-blue-900 mb-3"
-                      >
-                        2025 New Tax Regime
-                      </Typography>
-                      <List
-                        sx={{
-                          listStyleType: "disc",
-                          pl: 5,
-                          color: "text.primary",
-                        }}
-                      >
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="Income up to ₹4,00,000"
-                            secondary="0%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="₹4,00,001 to ₹8,00,000"
-                            secondary="5%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="₹8,00,001 to ₹12,00,000"
-                            secondary="10%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="₹12,00,001 to ₹16,00,000"
-                            secondary="15%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="₹16,00,001 to ₹20,00,000"
-                            secondary="20%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="₹20,00,001 to ₹24,00,000"
-                            secondary="25%"
-                          />
-                        </ListItem>
-                        <ListItem sx={{ display: "list-item" }}>
-                          <ListItemText
-                            primary="Above ₹24,00,000"
-                            secondary="30%"
-                          />
-                        </ListItem>
-                      </List>
-                    </div>
+                    <OldTaxRegime />
+                    <NewTaxSlabs />
                   </div>
-                  <div className="mt-4 space-y-2 border-t border-blue-100 pt-4 text-blue-700">
-                    <p>
+                  <Box
+                    sx={{
+                      mt: 4,
+                      pt: 4,
+                      borderTop: "1px solid #e0e0e0",
+                      color: "text.primary",
+                    }}
+                  >
+                    <Typography variant="body1" gutterBottom>
                       <strong>2025 Old Tax Regime:</strong> Standard deduction
                       of ₹50,000 and tax rebate under Section 87A up to ₹12,500
                       for income up to ₹5,00,000.
-                    </p>
-                    <p>
-                      <strong>2025 New Tax Regime</strong> Standard deduction of
-                      ₹75,000 and tax rebate under Section 87A up to ₹60,000 for
-                      income up to ₹12,00,000.
-                    </p>
-                  </div>
+                    </Typography>
+                    <Typography variant="body1" gutterBottom>
+                      <strong>2025 New Tax Regime:</strong> Standard deduction
+                      of ₹75,000 and tax rebate under Section 87A up to ₹60,000
+                      for income up to ₹12,00,000.
+                    </Typography>
+                  </Box>
                 </div>
               )}
             </div>
