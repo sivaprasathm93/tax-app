@@ -6,7 +6,7 @@ export interface TaxSlab {
 
 export interface TaxCalculation {
   totalIncome: number;
-  standardDeduction: number;
+  totalDecution: number;
   taxableIncome: number;
   slabwiseTax: {
     slab: TaxSlab;
@@ -15,11 +15,13 @@ export interface TaxCalculation {
   }[];
   totalTax: number;
   rebate: number;
-  finalTax: number;
+  finalTaxValue: number;
+  cess: number;
+  netTax: number;
 }
 
 export interface ComparisonResult {
-  proposed2025: TaxCalculation;
-  current: TaxCalculation;
+  newTaxRegime: TaxCalculation;
+  oldTaxRegime: TaxCalculation;
   difference: number;
 }
