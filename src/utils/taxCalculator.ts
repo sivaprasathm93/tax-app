@@ -1,181 +1,295 @@
-import { TaxSlab, TaxCalculation, ComparisonResult } from "../types";
+import {
+  CESS_RATE,
+  DEDUCTION_LIMITS,
+  EMPLOYER_NPS_PERCENT,
+  HRA_SALARY_PERCENT,
+  MEAL_VOUCHER,
+  NEW_REGIME_SLABS,
+  OLD_REGIME_SLABS,
+  REBATE_87A,
+  STANDARD_DEDUCTION,
+  SURCHARGE_BANDS,
+} from "../constants/taxRules";
+import {
+  ComparisonResult,
+  DeductionLine,
+  Regime,
+  SlabTaxRow,
+  TaxCalculation,
+  TaxInput,
+  TaxSlab,
+} from "../types";
 
-const NEW_TAX_SLABS: TaxSlab[] = [
-  { min: 0, max: 400000, rate: 0 },
-  { min: 400001, max: 800000, rate: 5 },
-  { min: 800001, max: 1200000, rate: 10 },
-  { min: 1200001, max: 1600000, rate: 15 },
-  { min: 1600001, max: 2000000, rate: 20 },
-  { min: 2000001, max: 2400000, rate: 25 },
-  { min: 2400001, max: null, rate: 30 },
-];
+/** Treats NaN, negatives and undefined as zero so partial forms still calculate. */
+function safe(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : 0;
+}
 
-const OLD_TAX_SLABS: TaxSlab[] = [
-  { min: 0, max: 250000, rate: 0 },
-  { min: 250001, max: 500000, rate: 5 },
-  { min: 500001, max: 1000000, rate: 20 },
-  { min: 1000001, max: null, rate: 30 },
-];
+function line(
+  label: string,
+  entered: number,
+  limit = Infinity
+): DeductionLine | null {
+  const amount = Math.min(safe(entered), limit);
+  if (amount <= 0) return null;
+  return amount < safe(entered)
+    ? { label, amount, cappedFrom: safe(entered) }
+    : { label, amount };
+}
 
-const NEW_TAX_STANDARD_DEDUCTION = 75000;
-const OLD_TAX_STANDARD_DEDUCTION = 50000;
-const NEW_TAX_REBATE_LIMIT = 1200000;
-const OLD_TAX_REBATE_LIMIT = 500000;
+function sum(lines: DeductionLine[]): number {
+  return lines.reduce((total, item) => total + item.amount, 0);
+}
 
-function calculateTaxForNewRegime(
-  income: number,
-  slabs: TaxSlab[],
-  standardDeduction: number,
-  rebateLimit: number,
-  maxRebate: number
-): TaxCalculation {
-  const deduction = income > 0 ? standardDeduction : 0;
-  const taxableIncome = Math.max(0, income - deduction);
-
-  let remainingIncome = taxableIncome;
-  let totalTax = 0;
-  const slabwiseTax = [];
+/**
+ * Walks the slabs and taxes only the income that falls inside each band.
+ * Bounds are half-open ([from, upTo)) so no rupee is taxed twice or skipped.
+ */
+export function computeSlabTax(
+  taxableIncome: number,
+  slabs: TaxSlab[]
+): { tax: number; rows: SlabTaxRow[] } {
+  let tax = 0;
+  const rows: SlabTaxRow[] = [];
 
   for (const slab of slabs) {
-    if (remainingIncome <= 0) break;
+    const upper = slab.upTo ?? Infinity;
+    const amount = Math.max(0, Math.min(taxableIncome, upper) - slab.from);
+    if (amount <= 0) continue;
 
-    const slabMin = slab.min;
-    const slabMax = slab.max ?? Infinity;
-    const slabAmount = Math.min(remainingIncome, slabMax - slabMin + 1);
-
-    const tax = (slabAmount * slab.rate) / 100;
-
-    if (slabAmount > 0) {
-      slabwiseTax.push({
-        slab,
-        amount: slabAmount,
-        tax,
-      });
-    }
-
-    totalTax += tax;
-    remainingIncome -= slabAmount;
+    const slabTax = (amount * slab.rate) / 100;
+    rows.push({ slab, amount, tax: slabTax });
+    tax += slabTax;
   }
 
-  const rebate =
-    taxableIncome <= rebateLimit ? Math.min(totalTax, maxRebate) : 0;
-  const finalTax = Math.max(0, totalTax - rebate);
-  const cess = finalTax * 0.04;
-  const finalTaxValue = finalTax + cess;
-  const netTax = (finalTaxValue / income) * 100;
+  return { tax, rows };
+}
+
+/**
+ * HRA exemption under section 10(13A) / Rule 2A - the least of the three limbs.
+ * "Salary" here means basic pay plus dearness allowance.
+ */
+export function computeHraExemption(
+  hraReceived: number,
+  rentPaid: number,
+  basicSalary: number,
+  cityType: "metro" | "nonMetro"
+): number {
+  const hra = safe(hraReceived);
+  const rent = safe(rentPaid);
+  const salary = safe(basicSalary);
+  if (hra <= 0 || rent <= 0 || salary <= 0) return 0;
+
+  const percent = HRA_SALARY_PERCENT[cityType];
+  return Math.max(
+    0,
+    Math.min(hra, rent - salary * 0.1, (salary * percent) / 100)
+  );
+}
+
+/**
+ * Surcharge on income above the band thresholds, with marginal relief so that
+ * crossing a threshold never costs more than the income earned beyond it.
+ */
+function computeSurcharge(
+  taxableIncome: number,
+  taxAfterRebate: number,
+  slabs: TaxSlab[],
+  regime: Regime
+): { surcharge: number; marginalRelief: number } {
+  const bands = SURCHARGE_BANDS[regime];
+  let bandIndex = -1;
+  for (let i = bands.length - 1; i >= 0; i--) {
+    if (taxableIncome > bands[i].above) {
+      bandIndex = i;
+      break;
+    }
+  }
+  if (bandIndex < 0 || taxAfterRebate <= 0) {
+    return { surcharge: 0, marginalRelief: 0 };
+  }
+
+  const band = bands[bandIndex];
+  const surcharge = (taxAfterRebate * band.rate) / 100;
+
+  // At exactly the threshold the previous (lower) band rate still applies.
+  const previousRate = bandIndex > 0 ? bands[bandIndex - 1].rate : 0;
+  const taxAtThreshold = computeSlabTax(band.above, slabs).tax;
+  const payableAtThreshold = taxAtThreshold * (1 + previousRate / 100);
+
+  const payableNow = taxAfterRebate + surcharge;
+  const ceiling = payableAtThreshold + (taxableIncome - band.above);
+  const marginalRelief = Math.max(0, payableNow - ceiling);
+
+  return { surcharge, marginalRelief };
+}
+
+/**
+ * Exemptions that reduce salary income before any regime-specific deduction.
+ * Meal vouchers now sit here for BOTH regimes - Rule 15(5)(a) of the
+ * Income-tax Rules, 2026 extended the benefit to the new regime from FY 2026-27.
+ */
+function buildExemptions(input: TaxInput, regime: Regime): DeductionLine[] {
+  const lines: DeductionLine[] = [];
+
+  const meal = line(
+    `Meal vouchers (Rule 15(5)(a), max ${MEAL_VOUCHER.annualCap.toLocaleString("en-IN")})`,
+    input.mealVouchers,
+    MEAL_VOUCHER.annualCap
+  );
+  if (meal) lines.push(meal);
+
+  if (regime === "old") {
+    const hraExempt = computeHraExemption(
+      input.hraReceived,
+      input.rentPaid,
+      input.basicSalary,
+      input.cityType
+    );
+    if (hraExempt > 0) {
+      lines.push({ label: "HRA exemption (Sec 10(13A))", amount: hraExempt });
+    }
+  }
+
+  return lines;
+}
+
+/** Deductions available under the given regime, each trimmed to its ceiling. */
+function buildDeductions(input: TaxInput, regime: Regime): DeductionLine[] {
+  const lines: DeductionLine[] = [];
+
+  lines.push({
+    label: "Standard deduction",
+    amount: STANDARD_DEDUCTION[regime],
+  });
+
+  // Employer NPS survives in both regimes, at different ceilings.
+  const npsCeiling = (safe(input.basicSalary) * EMPLOYER_NPS_PERCENT[regime]) / 100;
+  const employerNps = line(
+    `Employer NPS - Sec 80CCD(2) (max ${EMPLOYER_NPS_PERCENT[regime]}% of basic)`,
+    input.employerNps,
+    npsCeiling
+  );
+  if (employerNps) lines.push(employerNps);
+
+  if (regime === "old") {
+    const optional: (DeductionLine | null)[] = [
+      line("Section 80C", input.section80C, DEDUCTION_LIMITS.section80C),
+      line(
+        "Section 80CCD(1B) - NPS self",
+        input.section80CCD1B,
+        DEDUCTION_LIMITS.section80CCD1B
+      ),
+      line(
+        "Section 80D - health insurance",
+        input.section80D,
+        DEDUCTION_LIMITS.section80D
+      ),
+      line(
+        "Section 24(b) - home loan interest",
+        input.section24B,
+        DEDUCTION_LIMITS.section24B
+      ),
+      line(
+        input.ageGroup === "below60"
+          ? "Section 80TTA - savings interest"
+          : "Section 80TTB - interest income",
+        input.savingsInterest,
+        input.ageGroup === "below60"
+          ? DEDUCTION_LIMITS.section80TTA
+          : DEDUCTION_LIMITS.section80TTB
+      ),
+      line(
+        "Professional tax",
+        input.professionalTax,
+        DEDUCTION_LIMITS.professionalTax
+      ),
+    ];
+    for (const item of optional) if (item) lines.push(item);
+  }
+
+  return lines;
+}
+
+export function calculateTax(input: TaxInput, regime: Regime): TaxCalculation {
+  const grossIncome = safe(input.grossIncome);
+  const slabs =
+    regime === "new" ? NEW_REGIME_SLABS : OLD_REGIME_SLABS[input.ageGroup];
+
+  const exemptions = grossIncome > 0 ? buildExemptions(input, regime) : [];
+  const totalExemptions = sum(exemptions);
+
+  const deductions = grossIncome > 0 ? buildDeductions(input, regime) : [];
+  const totalDeductions = sum(deductions);
+
+  const taxableIncome = Math.max(
+    0,
+    grossIncome - totalExemptions - totalDeductions
+  );
+
+  const { tax: taxBeforeRebate, rows: slabwiseTax } = computeSlabTax(
+    taxableIncome,
+    slabs
+  );
+
+  // Section 87A rebate, plus marginal relief where the regime provides it.
+  const rebateRule = REBATE_87A[regime];
+  let rebate = 0;
+  let rebateMarginalRelief = 0;
+
+  if (taxableIncome <= rebateRule.incomeCeiling) {
+    rebate = Math.min(taxBeforeRebate, rebateRule.maxRebate);
+  } else if (rebateRule.marginalRelief) {
+    // Tax must never exceed the income earned above the rebate ceiling.
+    const incomeAboveCeiling = taxableIncome - rebateRule.incomeCeiling;
+    if (taxBeforeRebate > incomeAboveCeiling) {
+      rebateMarginalRelief = taxBeforeRebate - incomeAboveCeiling;
+    }
+  }
+
+  const taxAfterRebate = Math.max(
+    0,
+    taxBeforeRebate - rebate - rebateMarginalRelief
+  );
+
+  const { surcharge, marginalRelief: surchargeMarginalRelief } =
+    computeSurcharge(taxableIncome, taxAfterRebate, slabs, regime);
+
+  const taxPlusSurcharge = taxAfterRebate + surcharge - surchargeMarginalRelief;
+  const cess = (taxPlusSurcharge * CESS_RATE) / 100;
+  const totalTax = Math.round(taxPlusSurcharge + cess);
 
   return {
-    totalIncome: income,
-    totalDecution: deduction,
+    regime,
+    grossIncome,
+    exemptions,
+    deductions,
+    totalExemptions,
+    totalDeductions,
     taxableIncome,
     slabwiseTax,
-    totalTax,
+    taxBeforeRebate,
     rebate,
-    finalTaxValue,
+    rebateMarginalRelief,
+    surcharge,
+    surchargeMarginalRelief,
     cess,
-    netTax,
+    totalTax,
+    effectiveRate: grossIncome > 0 ? (totalTax / grossIncome) * 100 : 0,
   };
 }
 
-function calculateTaxForOldRegime(
-  income: number,
-  slabs: TaxSlab[],
-  standardDeduction: number,
-  rebateLimit: number,
-  maxRebate: number,
-  hra: number,
-  nps: number,
-  eightC: number,
-  lossOnHomeLoan: number,
-  eightyD: number
-): TaxCalculation {
-  const oldTaxDeductions =
-    hra + nps + eightC + lossOnHomeLoan + eightyD + standardDeduction;
-  const deduction = income > 0 ? oldTaxDeductions : 0;
-  const taxableIncome = Math.max(0, income - deduction);
-
-  let remainingIncome = taxableIncome;
-  let totalTax = 0;
-  const slabwiseTax = [];
-
-  for (const slab of slabs) {
-    if (remainingIncome <= 0) break;
-
-    const slabMin = slab.min;
-    const slabMax = slab.max ?? Infinity;
-    const slabAmount = Math.min(remainingIncome, slabMax - slabMin + 1);
-
-    const tax = (slabAmount * slab.rate) / 100;
-
-    if (slabAmount > 0) {
-      slabwiseTax.push({
-        slab,
-        amount: slabAmount,
-        tax,
-      });
-    }
-
-    totalTax += tax;
-    remainingIncome -= slabAmount;
-  }
-
-  const rebate =
-    taxableIncome <= rebateLimit ? Math.min(totalTax, maxRebate) : 0;
-  const finalTax = Math.max(0, totalTax - rebate);
-  const cess = finalTax * 0.04;
-  const finalTaxValue = finalTax + cess;
-  const netTax = (finalTaxValue / income) * 100;
+export function calculateTaxComparison(input: TaxInput): ComparisonResult {
+  const newRegime = calculateTax(input, "new");
+  const oldRegime = calculateTax(input, "old");
+  const difference = oldRegime.totalTax - newRegime.totalTax;
 
   return {
-    totalIncome: income,
-    totalDecution: deduction,
-    taxableIncome,
-    slabwiseTax,
-    totalTax,
-    rebate,
-    finalTaxValue,
-    cess,
-    netTax,
-  };
-}
-
-export function calculateTaxComparison(
-  income: number,
-  hra: number,
-  nps: number,
-  eightC: number,
-  lossOnHomeLoan: number,
-  eightyD: number
-): ComparisonResult {
-  const newTaxRegime = calculateTaxForNewRegime(
-    income,
-    NEW_TAX_SLABS,
-    NEW_TAX_STANDARD_DEDUCTION,
-    NEW_TAX_REBATE_LIMIT,
-    60000
-  );
-
-  const hraValue = isNaN(hra) ? 0 : hra;
-  const npsValue = isNaN(nps) ? 0 : nps;
-  const eightCValue = isNaN(eightC) ? 0 : eightC;
-  const lossOnHomeLoanValue = isNaN(lossOnHomeLoan) ? 0 : lossOnHomeLoan;
-  const eightyDValue = isNaN(eightyD) ? 0 : eightyD;
-  const oldTaxRegime = calculateTaxForOldRegime(
-    income,
-    OLD_TAX_SLABS,
-    OLD_TAX_STANDARD_DEDUCTION,
-    OLD_TAX_REBATE_LIMIT,
-    12500,
-    hraValue,
-    npsValue,
-    eightCValue,
-    lossOnHomeLoanValue,
-    eightyDValue
-  );
-
-  return {
-    newTaxRegime,
-    oldTaxRegime,
-    difference: oldTaxRegime.finalTaxValue - newTaxRegime.finalTaxValue,
+    newRegime,
+    oldRegime,
+    difference,
+    betterRegime: difference > 0 ? "new" : difference < 0 ? "old" : "equal",
   };
 }

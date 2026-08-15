@@ -2,7 +2,7 @@
   "name": "tax-app",
   "private": true,
   "version": "1.0.0",
-  "description": "A tax calculator app for comparing tax liabilities under different regimes.",
+  "description": "Compare Indian income tax under the old and new regimes for FY 2026-27 (A.Y. 2027-28).",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -12,11 +12,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.0",
-    "@mui/material": "^6.4.2",
-    "dotenv": "^16.4.7",
-    "firebase": "^11.2.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

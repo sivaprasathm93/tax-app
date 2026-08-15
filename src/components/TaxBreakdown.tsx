@@ -1,166 +1,248 @@
-import { ComparisonResult } from "../types";
+import { memo } from "react";
 import { IndianRupee, TrendingDown, TrendingUp } from "lucide-react";
+import { ComparisonResult, TaxCalculation } from "../types";
+import { formatCurrency, formatPercent } from "../utils/format";
 
 interface Props {
   comparison: ComparisonResult;
 }
 
-export function TaxBreakdown({ comparison }: Props) {
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
+function Row({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "credit" | "total";
+}) {
+  const valueClass =
+    tone === "credit"
+      ? "text-emerald-600"
+      : tone === "total"
+        ? "text-blue-600 text-lg"
+        : "text-blue-900";
+  return (
+    <>
+      <span
+        className={
+          tone === "total"
+            ? "text-lg font-bold text-blue-900"
+            : "text-blue-700"
+        }
+      >
+        {label}
+      </span>
+      <span className={`font-semibold text-right tabular-nums ${valueClass}`}>
+        {value}
+      </span>
+    </>
+  );
+}
 
-  const RegimeTaxBreakdown = ({ data }: any) => (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 p-5 bg-gradient-to-br from-blue-50/50 to-white rounded-lg text-sm sm:text-base border border-blue-100/50">
-        <span className="text-blue-700">Total Income:</span>
-        <span className="font-semibold text-blue-900">
-          {formatCurrency(data.totalIncome)}
-        </span>
+/**
+ * Declared at module scope rather than inside TaxBreakdown so React keeps the
+ * same component type across renders instead of unmounting the whole subtree.
+ */
+const RegimePanel = memo(function RegimePanel({
+  title,
+  data,
+  highlight,
+}: {
+  title: string;
+  data: TaxCalculation;
+  highlight: boolean;
+}) {
+  const reliefApplied = data.rebateMarginalRelief + data.surchargeMarginalRelief;
 
-        <span className="text-blue-700">Total Deduction:</span>
-        <span className="font-semibold text-emerald-600">
-          - {formatCurrency(data.totalDecution)}
-        </span>
-
-        <span className="text-blue-700">Taxable Income:</span>
-        <span className="font-semibold text-blue-900">
-          {formatCurrency(data.taxableIncome)}
-        </span>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-semibold text-blue-900 mb-4">
-          Slab-wise Tax Calculation
-        </h3>
-        <div className="space-y-2">
-          {data.slabwiseTax.map((item: any, index: number) => (
-            <div
-              key={index}
-              className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-gradient-to-br from-blue-50/30 to-white 
-                            rounded-lg text-sm border border-blue-100/50 hover:shadow-md transition-shadow duration-200"
-            >
-              <div>
-                <span className="text-sm text-blue-800">
-                  {formatCurrency(item.slab.min)} -{" "}
-                  {item.slab.max ? formatCurrency(item.slab.max) : "∞"}
-                </span>
-                <div className="text-xs text-blue-600">@{item.slab.rate}%</div>
-              </div>
-              <div className="flex sm:block justify-between">
-                <span className="text-blue-700 sm:hidden">Amount:</span>
-                <span className="text-right text-blue-900">
-                  {formatCurrency(item.amount)}
-                </span>
-              </div>
-              <div className="flex sm:block justify-between">
-                <span className="text-blue-700 sm:hidden">Tax:</span>
-                <span className="text-right font-medium text-blue-900">
-                  {formatCurrency(item.tax)}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="border-t border-blue-100 pt-6">
-        <div className="grid grid-cols-2 gap-4 text-sm sm:text-base">
-          <span className="text-blue-700">Total Tax:</span>
-          <span className="font-semibold text-blue-900">
-            {formatCurrency(data.totalTax)}
+  return (
+    <div
+      className={`rounded-xl p-5 border-2 ${
+        highlight
+          ? "border-emerald-300 bg-emerald-50/40"
+          : "border-blue-100 bg-white"
+      }`}
+    >
+      <div className="flex items-center justify-between mb-5 gap-2">
+        <h2 className="text-xl font-bold text-blue-900">{title}</h2>
+        {highlight && (
+          <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full whitespace-nowrap">
+            Lower tax
           </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-4 bg-blue-50/40 rounded-lg text-sm border border-blue-100/50">
+        <Row label="Gross income" value={formatCurrency(data.grossIncome)} />
+        {data.exemptions.map((item) => (
+          <Row
+            key={item.label}
+            label={item.label}
+            value={`- ${formatCurrency(item.amount)}`}
+            tone="credit"
+          />
+        ))}
+        {data.deductions.map((item) => (
+          <Row
+            key={item.label}
+            label={item.label}
+            value={`- ${formatCurrency(item.amount)}`}
+            tone="credit"
+          />
+        ))}
+        <Row label="Taxable income" value={formatCurrency(data.taxableIncome)} />
+      </div>
+
+      {data.slabwiseTax.length > 0 && (
+        <div className="mt-5">
+          <h3 className="text-base font-semibold text-blue-900 mb-3">
+            Slab-wise tax
+          </h3>
+          <div className="space-y-2">
+            {data.slabwiseTax.map((item) => (
+              <div
+                key={item.slab.from}
+                className="grid grid-cols-3 gap-3 px-4 py-2.5 bg-blue-50/30 rounded-lg text-sm border border-blue-100/50"
+              >
+                <div>
+                  <div className="text-blue-800">
+                    {formatCurrency(item.slab.from)} –{" "}
+                    {item.slab.upTo ? formatCurrency(item.slab.upTo) : "∞"}
+                  </div>
+                  <div className="text-xs text-blue-600">@{item.slab.rate}%</div>
+                </div>
+                <div className="text-right text-blue-900 tabular-nums self-center">
+                  {formatCurrency(item.amount)}
+                </div>
+                <div className="text-right font-medium text-blue-900 tabular-nums self-center">
+                  {formatCurrency(item.tax)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-blue-100 mt-5 pt-5">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <Row label="Tax on slabs" value={formatCurrency(data.taxBeforeRebate)} />
 
           {data.rebate > 0 && (
-            <>
-              <span className="text-blue-700">Tax Rebate (Section 87A):</span>
-              <span className="font-semibold text-emerald-600">
-                - {formatCurrency(data.rebate)}
-              </span>
-            </>
+            <Row
+              label="Rebate u/s 87A"
+              value={`- ${formatCurrency(data.rebate)}`}
+              tone="credit"
+            />
+          )}
+          {data.rebateMarginalRelief > 0 && (
+            <Row
+              label="Marginal relief u/s 87A"
+              value={`- ${formatCurrency(data.rebateMarginalRelief)}`}
+              tone="credit"
+            />
+          )}
+          {data.surcharge > 0 && (
+            <Row label="Surcharge" value={formatCurrency(data.surcharge)} />
+          )}
+          {data.surchargeMarginalRelief > 0 && (
+            <Row
+              label="Marginal relief on surcharge"
+              value={`- ${formatCurrency(data.surchargeMarginalRelief)}`}
+              tone="credit"
+            />
           )}
 
-          <span className="text-blue-700">Cess 4%:</span>
-          <span className="font-semibold text-blue-900">
-            {formatCurrency(data.cess)}
-          </span>
-
-          <span className="text-blue-700">Net Tax %:</span>
-          <span className="font-semibold text-blue-900">
-            {formatCurrency(data.netTax)} %
-          </span>
-
-          <span className="text-lg font-bold text-blue-900">Final Tax:</span>
-          <span className="text-lg font-bold text-blue-600">
-            {formatCurrency(data.finalTaxValue)}
-          </span>
+          <Row label="Health & Education Cess (4%)" value={formatCurrency(data.cess)} />
+          <Row
+            label="Effective rate on gross"
+            value={formatPercent(data.effectiveRate)}
+          />
+          <Row
+            label="Total tax payable"
+            value={formatCurrency(data.totalTax)}
+            tone="total"
+          />
         </div>
+
+        {reliefApplied > 0 && (
+          <p className="mt-3 text-xs text-emerald-700">
+            Marginal relief of {formatCurrency(reliefApplied)} applied so the tax
+            does not exceed the income earned past the threshold.
+          </p>
+        )}
       </div>
     </div>
   );
+});
+
+export const TaxBreakdown = memo(function TaxBreakdown({ comparison }: Props) {
+  const { oldRegime, newRegime, difference, betterRegime } = comparison;
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-6 sm:p-8 w-full border border-blue-100/50">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-blue-900 mb-6">
-              2025 Old Tax Regime
-            </h2>
-            <RegimeTaxBreakdown data={comparison.oldTaxRegime} />
-          </div>
-
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-blue-900 mb-6">
-              2025 New Tax Regime
-            </h2>
-            <RegimeTaxBreakdown data={comparison.newTaxRegime} />
-          </div>
+    <div className="flex flex-col gap-6">
+      <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-5 sm:p-7 border border-blue-100/50">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <RegimePanel
+            title="Old tax regime"
+            data={oldRegime}
+            highlight={betterRegime === "old"}
+          />
+          <RegimePanel
+            title="New tax regime"
+            data={newRegime}
+            highlight={betterRegime === "new"}
+          />
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-6 sm:p-8 border border-blue-100/50">
-        <h2 className="text-xl sm:text-2xl font-bold text-blue-900 mb-6 flex items-center gap-2">
-          <IndianRupee className="w-6 h-6" />
-          Tax Savings Comparison
+        <h2 className="text-xl sm:text-2xl font-bold text-blue-900 mb-5 flex items-center gap-2">
+          <IndianRupee className="w-6 h-6" aria-hidden="true" />
+          Which regime costs less?
         </h2>
 
         <div className="flex items-center gap-4">
-          {comparison.difference > 0 ? (
+          {betterRegime === "new" ? (
             <>
-              <TrendingDown className="w-6 h-6 text-emerald-500" />
+              <TrendingDown
+                className="w-7 h-7 text-emerald-500 shrink-0"
+                aria-hidden="true"
+              />
               <div>
-                <span className="text-lg font-semibold text-emerald-600">
-                  You save {formatCurrency(comparison.difference)}
-                </span>
+                <p className="text-lg font-semibold text-emerald-600">
+                  You save {formatCurrency(difference)} under the new regime
+                </p>
                 <p className="text-sm text-blue-700">
-                  under the 2025 New tax regime
+                  {formatCurrency(newRegime.totalTax)} against{" "}
+                  {formatCurrency(oldRegime.totalTax)} under the old regime.
                 </p>
               </div>
             </>
-          ) : comparison.difference < 0 ? (
+          ) : betterRegime === "old" ? (
             <>
-              <TrendingUp className="w-6 h-6 text-red-500" />
+              <TrendingUp
+                className="w-7 h-7 text-red-500 shrink-0"
+                aria-hidden="true"
+              />
               <div>
-                <span className="text-lg font-semibold text-red-600">
-                  You pay {formatCurrency(Math.abs(comparison.difference))} more
-                </span>
+                <p className="text-lg font-semibold text-red-600">
+                  You save {formatCurrency(Math.abs(difference))} under the old
+                  regime
+                </p>
                 <p className="text-sm text-blue-700">
-                  under the 2025 New tax regime
+                  {formatCurrency(oldRegime.totalTax)} against{" "}
+                  {formatCurrency(newRegime.totalTax)} under the new regime.
                 </p>
               </div>
             </>
           ) : (
-            <span className="text-lg font-semibold text-blue-900">
-              No difference in tax liability between the regimes
-            </span>
+            <p className="text-lg font-semibold text-blue-900">
+              Both regimes cost the same:{" "}
+              {formatCurrency(newRegime.totalTax)}.
+            </p>
           )}
         </div>
       </div>
     </div>
   );
-}
+});

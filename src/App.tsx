@@ -1,334 +1,348 @@
-import React, { useEffect, useState } from "react";
-import { ThemeProvider } from "@mui/material/styles";
-import { Calculator, HelpCircle, Heart } from "lucide-react";
+import { Suspense, lazy, useCallback, useMemo, useState } from "react";
+import { Calculator, HelpCircle, Heart, UtensilsCrossed } from "lucide-react";
+import { CurrencyField } from "./components/CurrencyField";
 import { calculateTaxComparison } from "./utils/taxCalculator";
-import { TaxBreakdown } from "./components/TaxBreakdown";
-import { ComparisonResult } from "./types";
-import theme from "./theme";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import { analytics } from "./firebase";
-import "./App.css";
-import { Box, Typography } from "@mui/material";
-import NewTaxSlabs from "./components/NewTaxSlabs";
-import OldTaxRegime from "./components/OldTaxSlabs";
+import {
+  ASSESSMENT_YEAR,
+  DEDUCTION_LIMITS,
+  FINANCIAL_YEAR,
+  MEAL_VOUCHER,
+  METRO_CITIES,
+} from "./constants/taxRules";
+import { AgeGroup, CityType, TaxInput } from "./types";
+import { formatCurrency } from "./utils/format";
+
+// Kept out of the initial bundle - neither is needed for the first paint.
+const HelpPanel = lazy(() => import("./components/HelpPanel"));
+const TaxBreakdown = lazy(() =>
+  import("./components/TaxBreakdown").then((m) => ({ default: m.TaxBreakdown }))
+);
+
+type FieldName = Exclude<keyof TaxInput, "ageGroup" | "cityType">;
+
+const EMPTY_FORM: Record<FieldName, string> = {
+  grossIncome: "",
+  basicSalary: "",
+  hraReceived: "",
+  rentPaid: "",
+  mealVouchers: "",
+  employerNps: "",
+  section80C: "",
+  section80CCD1B: "",
+  section80D: "",
+  section24B: "",
+  savingsInterest: "",
+  professionalTax: "",
+};
+
+const AGE_OPTIONS: { value: AgeGroup; label: string }[] = [
+  { value: "below60", label: "Below 60" },
+  { value: "senior", label: "60 to 79 (senior)" },
+  { value: "superSenior", label: "80 and above" },
+];
+
+const selectClass =
+  "w-full py-3 px-3 text-base border-2 border-blue-200 rounded-lg shadow-sm bg-white " +
+  "focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:outline-none transition-colors duration-200";
 
 function App() {
-  const [income, setIncome] = useState<string>("");
-  const [hra, setHra] = useState<string>("");
-  const [nps, setNps] = useState<string>("");
-  const [eightyC, setEightyC] = useState<string>("");
-  const [lossOnHomeLoan, setLossOnHomeLoan] = useState<string>("");
-  const [eightyD, setEightyD] = useState<string>("");
-  const [comparison, setComparison] = useState<ComparisonResult | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [ageGroup, setAgeGroup] = useState<AgeGroup>("below60");
+  const [cityType, setCityType] = useState<CityType>("metro");
   const [showHelp, setShowHelp] = useState(false);
+  const [submitted, setSubmitted] = useState<TaxInput | null>(null);
 
-  const [visitCount, setVisitCount] = useState<number>(0);
-
-  useEffect(() => {
-    const incrementVisitCount = async () => {
-      const visitDocRef = doc(analytics, "visits", "totalVisits");
-      const visitDoc = await getDoc(visitDocRef);
-
-      if (visitDoc.exists()) {
-        const currentCount = visitDoc.data()?.count || 0;
-        await updateDoc(visitDocRef, { count: currentCount + 1 });
-        setVisitCount(currentCount + 1);
-      } else {
-        await setDoc(visitDocRef, { count: 1 });
-        setVisitCount(1);
-      }
-    };
-
-    incrementVisitCount();
+  // Stable identity keeps every memoised CurrencyField from re-rendering.
+  const handleFieldChange = useCallback((name: string, value: string) => {
+    setForm((previous) => ({ ...previous, [name]: value }));
   }, []);
 
-  const handleCalculate = () => {
-    const incomeValue = parseFloat(income.replace(/,/g, ""));
-    const eightyCValue = parseFloat(eightyC.replace(/,/g, ""));
-    const eightyDValue = parseFloat(eightyD.replace(/,/g, ""));
-    const lossOnHomeLoanValue = parseFloat(lossOnHomeLoan.replace(/,/g, ""));
-    const npsValue = parseFloat(nps.replace(/,/g, ""));
-    const hraValue = parseFloat(hra.replace(/,/g, ""));
-    if (!isNaN(incomeValue)) {
-      if (eightyCValue > 150000) {
-        alert("80C value should be less than or equal to 1,50,000");
-        return;
-      }
-      if (eightyDValue > 50000) {
-        alert("80D value should be less than or equal to 50,000");
-        return;
-      }
-      if (lossOnHomeLoanValue > 200000) {
-        alert("24b value should be less than or equal to 2,00,000");
-        return;
-      }
-      if (npsValue > 50000) {
-        alert("NPS value should be less than or equal to 50,000");
-        return;
-      }
-      const result = calculateTaxComparison(
-        incomeValue,
-        hraValue,
-        npsValue,
-        eightyCValue,
-        lossOnHomeLoanValue,
-        eightyDValue
-      );
-      setComparison(result);
-    }
-  };
+  const input = useMemo<TaxInput>(() => {
+    const numbers = Object.fromEntries(
+      Object.entries(form).map(([key, value]) => [key, value === "" ? 0 : Number(value)])
+    ) as Record<FieldName, number>;
+    return { ...numbers, ageGroup, cityType };
+  }, [form, ageGroup, cityType]);
 
-  const handleIncomeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setIncome(value);
-  };
+  const handleCalculate = useCallback(() => setSubmitted(input), [input]);
+  const handleReset = useCallback(() => {
+    setForm(EMPTY_FORM);
+    setSubmitted(null);
+  }, []);
+  const toggleHelp = useCallback(() => setShowHelp((open) => !open), []);
 
-  const handleHraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setHra(value);
-  };
+  // Only recomputed when the user actually submits, not on every keystroke.
+  const comparison = useMemo(
+    () => (submitted && submitted.grossIncome > 0 ? calculateTaxComparison(submitted) : null),
+    [submitted]
+  );
 
-  const handleNpsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setNps(value);
-  };
-
-  const handleEightyCChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setEightyC(value);
-  };
-
-  const handleLossOnHomeLoanChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setLossOnHomeLoan(value);
-  };
-
-  const handleEightyDChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d,]/g, "");
-    setEightyD(value);
-  };
+  const savingsLabel =
+    ageGroup === "below60"
+      ? `Savings interest - 80TTA (max ${formatCurrency(DEDUCTION_LIMITS.section80TTA)})`
+      : `Interest income - 80TTB (max ${formatCurrency(DEDUCTION_LIMITS.section80TTB)})`;
 
   return (
-    <ThemeProvider theme={theme}>
-      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-6 sm:py-12 px-4 flex flex-col">
-        <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 flex-grow">
-          <div className="text-center">
-            <Typography variant="h1" gutterBottom>
-              2025-26 Income Tax Calculator (A.Y. 2026-27)
-            </Typography>
-            <p className="text-sm sm:text-base text-blue-700/80 max-w-2xl mx-auto">
-              Compare your tax liability under the old and new tax regime
-              proposed on 2025 budget.
-            </p>
-          </div>
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-6 sm:py-12 px-4 flex flex-col">
+      <div className="max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 flex-grow">
+        <header className="text-center">
+          <h1 className="text-2xl sm:text-3xl font-bold text-blue-900">
+            Income Tax Calculator FY {FINANCIAL_YEAR} (A.Y. {ASSESSMENT_YEAR})
+          </h1>
+          <p className="mt-2 text-sm sm:text-base text-blue-700/80 max-w-2xl mx-auto">
+            Compare your liability under the old and new regimes using the
+            Income-tax Act, 2025 and Income-tax Rules, 2026, both in force from
+            1 April 2026.
+          </p>
+        </header>
 
-          <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-6 sm:p-8 max-w-2xl mx-auto border border-blue-100/50">
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  Annual Income
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="number"
-                    value={income}
-                    onChange={handleIncomeChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="Enter your annual income"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  House Rent Allowance
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="text"
-                    value={hra}
-                    onChange={handleHraChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="Enter your house rent allowance"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  Section 80C (₹) (Max: 1,50,000)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="text"
-                    value={eightyC}
-                    onChange={handleEightyCChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="(Max: 1,50,000)"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  National Pension System (₹) (Max: 50,000)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="text"
-                    value={nps}
-                    onChange={handleNpsChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="(Max: 50,000)"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  Section 80D (Health Insurance Max: 50,000)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="text"
-                    value={eightyD}
-                    onChange={handleEightyDChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="(Max: 50,000)"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-blue-900 mb-2">
-                  Section 24(b) (Home Loan Interest) (Max: 2,00,000)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">
-                    ₹
-                  </span>
-                  <input
-                    type="text"
-                    value={lossOnHomeLoan}
-                    onChange={handleLossOnHomeLoanChange}
-                    className="block w-full pl-9 pr-12 py-3 text-base sm:text-lg border-2 border-blue-200 rounded-lg shadow-sm 
-                           focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200
-                           placeholder:text-blue-300"
-                    placeholder="(Max: 2,00,000)"
-                  />
-                </div>
-              </div>
-              <button
-                onClick={handleCalculate}
-                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3.5 rounded-lg
-                       hover:bg-blue-700 active:bg-blue-800 transition-colors duration-200 text-base font-medium
-                       shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/30"
-              >
-                <Calculator className="w-5 h-5" />
-                Calculate Tax
-              </button>
+        <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-6 sm:p-8 max-w-2xl mx-auto border border-blue-100/50">
+          <div className="space-y-5">
+            <CurrencyField
+              id="grossIncome"
+              label="Gross annual salary"
+              value={form.grossIncome}
+              onChange={handleFieldChange}
+              placeholder="Enter your gross annual salary"
+            />
 
-              <button
-                onClick={() => setShowHelp(!showHelp)}
-                className="w-full flex items-center justify-center gap-2 text-blue-700 hover:text-blue-800 
-                       py-2 rounded-lg hover:bg-blue-50/50 transition-all duration-200 text-base"
-              >
-                <HelpCircle className="w-5 h-5" />
-                {showHelp ? "Hide Help" : "Show Help"}
-              </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="ageGroup"
+                  className="block text-sm font-semibold text-blue-900 mb-1.5"
+                >
+                  Age group
+                </label>
+                <select
+                  id="ageGroup"
+                  value={ageGroup}
+                  onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}
+                  className={selectClass}
+                >
+                  {AGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-blue-600/70">
+                  Sets the old regime basic exemption.
+                </p>
+              </div>
 
-              {showHelp && (
-                <div className="bg-blue-50/50 p-5 rounded-lg text-sm border border-blue-100">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <OldTaxRegime />
-                    <NewTaxSlabs />
-                  </div>
-                  <Box
-                    sx={{
-                      mt: 4,
-                      pt: 4,
-                      borderTop: "1px solid #e0e0e0",
-                      color: "text.primary",
-                    }}
-                  >
-                    <Typography variant="body1" gutterBottom>
-                      <strong>2025 Old Tax Regime:</strong> Standard deduction
-                      of ₹50,000 and tax rebate under Section 87A up to ₹12,500
-                      for income up to ₹5,00,000.
-                    </Typography>
-                    <Typography variant="body1" gutterBottom>
-                      <strong>2025 New Tax Regime:</strong> Standard deduction
-                      of ₹75,000 and tax rebate under Section 87A up to ₹60,000
-                      for income up to ₹12,00,000.
-                    </Typography>
-                  </Box>
-                </div>
-              )}
+              <div>
+                <label
+                  htmlFor="cityType"
+                  className="block text-sm font-semibold text-blue-900 mb-1.5"
+                >
+                  City of residence
+                </label>
+                <select
+                  id="cityType"
+                  value={cityType}
+                  onChange={(e) => setCityType(e.target.value as CityType)}
+                  className={selectClass}
+                >
+                  <option value="metro">Metro (50% HRA)</option>
+                  <option value="nonMetro">Non-metro (40% HRA)</option>
+                </select>
+                <p className="mt-1 text-xs text-blue-600/70">
+                  Metro from 1 Apr 2026: {METRO_CITIES.join(", ")}.
+                </p>
+              </div>
             </div>
-          </div>
 
-          {comparison && <TaxBreakdown comparison={comparison} />}
+            <CurrencyField
+              id="basicSalary"
+              label="Basic salary + DA (annual)"
+              value={form.basicSalary}
+              onChange={handleFieldChange}
+              hint="Used for the HRA and employer NPS ceilings."
+            />
+
+            <section className="rounded-lg border-2 border-emerald-200 bg-emerald-50/60 p-4">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-emerald-900 mb-1">
+                <UtensilsCrossed className="w-4 h-4" aria-hidden="true" />
+                Meal voucher scheme - new this year
+              </h2>
+              <p className="text-xs text-emerald-900/80 mb-3">
+                Rule 15(5)(a) of the Income-tax Rules, 2026 raised the exempt
+                value to ₹{MEAL_VOUCHER.perMeal} per meal from 1 April 2026, and
+                the benefit now applies under <strong>both</strong> regimes.
+                Cash meal allowances stay fully taxable.
+              </p>
+              <CurrencyField
+                id="mealVouchers"
+                label="Meal vouchers / food card received (annual)"
+                value={form.mealVouchers}
+                onChange={handleFieldChange}
+                max={MEAL_VOUCHER.annualCap}
+                hint={`Max ${formatCurrency(MEAL_VOUCHER.annualCap)} = ₹${MEAL_VOUCHER.perMeal} × ${MEAL_VOUCHER.mealsPerDay} meals × ${MEAL_VOUCHER.workingDaysPerMonth} days × ${MEAL_VOUCHER.monthsPerYear} months.`}
+              />
+            </section>
+
+            <CurrencyField
+              id="employerNps"
+              label="Employer NPS contribution - Sec 80CCD(2)"
+              value={form.employerNps}
+              onChange={handleFieldChange}
+              hint="Allowed in both regimes: 14% of basic (new), 10% (old)."
+            />
+
+            <fieldset className="space-y-5 border-t border-blue-100 pt-5">
+              <legend className="text-sm font-semibold text-blue-900 mb-1">
+                Old regime only
+              </legend>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <CurrencyField
+                  id="hraReceived"
+                  label="HRA received (annual)"
+                  value={form.hraReceived}
+                  onChange={handleFieldChange}
+                />
+                <CurrencyField
+                  id="rentPaid"
+                  label="Rent paid (annual)"
+                  value={form.rentPaid}
+                  onChange={handleFieldChange}
+                />
+              </div>
+
+              <CurrencyField
+                id="section80C"
+                label="Section 80C"
+                value={form.section80C}
+                onChange={handleFieldChange}
+                max={DEDUCTION_LIMITS.section80C}
+                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80C)} - PF, ELSS, life insurance, tuition fees.`}
+              />
+              <CurrencyField
+                id="section80CCD1B"
+                label="Section 80CCD(1B) - own NPS"
+                value={form.section80CCD1B}
+                onChange={handleFieldChange}
+                max={DEDUCTION_LIMITS.section80CCD1B}
+                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80CCD1B)}, over and above 80C.`}
+              />
+              <CurrencyField
+                id="section80D"
+                label="Section 80D - health insurance"
+                value={form.section80D}
+                onChange={handleFieldChange}
+                max={DEDUCTION_LIMITS.section80D}
+                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80D)} including senior citizen parents.`}
+              />
+              <CurrencyField
+                id="section24B"
+                label="Section 24(b) - home loan interest"
+                value={form.section24B}
+                onChange={handleFieldChange}
+                max={DEDUCTION_LIMITS.section24B}
+                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section24B)} for a self-occupied property.`}
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <CurrencyField
+                  id="savingsInterest"
+                  label={savingsLabel}
+                  value={form.savingsInterest}
+                  onChange={handleFieldChange}
+                  max={
+                    ageGroup === "below60"
+                      ? DEDUCTION_LIMITS.section80TTA
+                      : DEDUCTION_LIMITS.section80TTB
+                  }
+                />
+                <CurrencyField
+                  id="professionalTax"
+                  label="Professional tax paid"
+                  value={form.professionalTax}
+                  onChange={handleFieldChange}
+                  max={DEDUCTION_LIMITS.professionalTax}
+                  hint={`Max ${formatCurrency(DEDUCTION_LIMITS.professionalTax)} a year.`}
+                />
+              </div>
+            </fieldset>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={handleCalculate}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3.5 rounded-lg
+                           hover:bg-blue-700 active:bg-blue-800 transition-colors duration-200 text-base font-medium
+                           shadow-md shadow-blue-600/20"
+              >
+                <Calculator className="w-5 h-5" aria-hidden="true" />
+                Calculate tax
+              </button>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="sm:w-32 px-6 py-3.5 rounded-lg border-2 border-blue-200 text-blue-700
+                           hover:bg-blue-50 transition-colors duration-200 text-base font-medium"
+              >
+                Reset
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleHelp}
+              aria-expanded={showHelp}
+              className="w-full flex items-center justify-center gap-2 text-blue-700 hover:text-blue-800
+                         py-2 rounded-lg hover:bg-blue-50/50 transition-colors duration-200 text-base"
+            >
+              <HelpCircle className="w-5 h-5" aria-hidden="true" />
+              {showHelp ? "Hide rules for this year" : "Show rules for this year"}
+            </button>
+
+            {showHelp && (
+              <Suspense
+                fallback={
+                  <p className="text-center text-sm text-blue-600 py-4">
+                    Loading rules…
+                  </p>
+                }
+              >
+                <HelpPanel ageGroup={ageGroup} />
+              </Suspense>
+            )}
+          </div>
         </div>
 
-        <footer className="text-center py-6 text-sm text-blue-600 flex flex-col items-center justify-center gap-1.5">
-          <div className="flex items-center gap-1.5">
-            Made with{" "}
-            <Heart className="w-4 h-4 text-red-500 fill-current animate-pulse" />{" "}
-            for Tax payers from Sivaprasath
-          </div>
-          <a
-            href="https://github.com/sivaprasathm93/tax-app"
-            target="_blank"
-            rel="noopener noreferrer"
-            color="primary"
+        {comparison && (
+          <Suspense
+            fallback={
+              <p className="text-center text-sm text-blue-600 py-4">
+                Preparing your breakdown…
+              </p>
+            }
           >
-            GitHub Repository
-          </a>
-          <Box
-            sx={{
-              marginTop: "1rem",
-              padding: "1rem",
-              border: "2px solid #1976d2",
-              borderRadius: "8px",
-              backgroundColor: "#e3f2fd",
-              textAlign: "center",
-              width: "fit-content",
-              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.1)",
-            }}
-          >
-            <Typography
-              variant="h6"
-              gutterBottom
-              sx={{ color: "#1976d2", fontWeight: "bold" }}
-            >
-              Total Visits: {visitCount}
-            </Typography>
-          </Box>
-        </footer>
+            <TaxBreakdown comparison={comparison} />
+          </Suspense>
+        )}
       </div>
-    </ThemeProvider>
+
+      <footer className="text-center py-6 text-sm text-blue-600 flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
+          Made with
+          <Heart
+            className="w-4 h-4 text-red-500 fill-current"
+            aria-hidden="true"
+          />
+          for tax payers from Sivaprasath
+        </div>
+        <a
+          href="https://github.com/sivaprasathm93/tax-app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-blue-800"
+        >
+          GitHub repository
+        </a>
+      </footer>
+    </div>
   );
 }
 
