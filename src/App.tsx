@@ -1,4 +1,11 @@
-import { Suspense, lazy, useCallback, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   BookOpen,
   Heart,
@@ -9,6 +16,7 @@ import {
 import { CurrencyField } from "./components/CurrencyField";
 import { FormSection } from "./components/FormSection";
 import { ResultPanel } from "./components/ResultPanel";
+import { Select } from "./components/Select";
 import { calculateTaxComparison } from "./utils/taxCalculator";
 import {
   ASSESSMENT_YEAR,
@@ -25,6 +33,10 @@ const TaxBreakdown = lazy(() =>
   import("./components/TaxBreakdown").then((m) => ({ default: m.TaxBreakdown }))
 );
 const HelpPanel = lazy(() => import("./components/HelpPanel"));
+// Only fetched if the user actually switches to the gratuity tool.
+const GratuityCalculator = lazy(
+  () => import("./components/GratuityCalculator")
+);
 
 type FieldName = Exclude<keyof TaxInput, "ageGroup" | "cityType">;
 
@@ -59,46 +71,32 @@ const OLD_REGIME_FIELDS: FieldName[] = [
   "professionalTax",
 ];
 
-const selectClass =
-  "w-full rounded-xl border border-slate-300 bg-white py-2.5 px-3 text-base text-slate-900 " +
-  "hover:border-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 focus:outline-none transition-colors";
+type Tool = "tax" | "gratuity";
 
-function Select({
-  id,
-  label,
-  hint,
-  value,
-  onChange,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint?: string;
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={id} className="block text-[13px] font-medium text-slate-700 mb-1.5">
-        {label}
-      </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={selectClass}
-      >
-        {children}
-      </select>
-      {hint && (
-        <p className="mt-1.5 text-xs text-[color:var(--ink-muted)]">{hint}</p>
-      )}
-    </div>
-  );
-}
+const TOOLS: { id: Tool; label: string }[] = [
+  { id: "tax", label: "Income tax" },
+  { id: "gratuity", label: "Gratuity" },
+];
+
+const TOOL_TITLE: Record<Tool, string> = {
+  tax: `Income Tax Calculator FY ${FINANCIAL_YEAR} (A.Y. ${ASSESSMENT_YEAR})`,
+  gratuity: `Gratuity Calculator FY ${FINANCIAL_YEAR}`,
+};
 
 function App() {
+  const [tool, setTool] = useState<Tool>("tax");
+  const [gratuityOpened, setGratuityOpened] = useState(false);
+
+  const selectTool = useCallback((next: Tool) => {
+    setTool(next);
+    if (next === "gratuity") setGratuityOpened(true);
+  }, []);
+
+  // The tab title has to follow the active tool, or a bookmarked or
+  // background tab on the gratuity tool still reads "Income Tax Calculator".
+  useEffect(() => {
+    document.title = TOOL_TITLE[tool];
+  }, [tool]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("below60");
   const [cityType, setCityType] = useState<CityType>("metro");
@@ -149,21 +147,68 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex-grow">
-        <header className="mb-8">
+        <header className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">
             FY {FINANCIAL_YEAR} · A.Y. {ASSESSMENT_YEAR}
           </p>
           <h1 className="mt-1.5 text-2xl sm:text-[2rem] font-semibold tracking-tight text-slate-900">
-            Income Tax Calculator
+            {tool === "tax" ? "Income Tax Calculator" : "Gratuity Calculator"}
           </h1>
           <p className="mt-2 text-[15px] text-[color:var(--ink-secondary)] max-w-2xl">
-            Old regime versus new, worked out as you type. Rules from the
-            Income-tax Act, 2025 and the Income-tax Rules, 2026 — both in force
-            from 1 April 2026.
+            {tool === "tax"
+              ? "Old regime versus new, worked out as you type. Rules from the Income-tax Act, 2025 and the Income-tax Rules, 2026 — both in force from 1 April 2026."
+              : "What you are owed on leaving, and how much of it is tax-free. Rules from the Code on Social Security, in force since 21 November 2025."}
           </p>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        {/* Two separate tools rather than one long page - each keeps its own
+            focused form and its own sticky result. */}
+        <div
+          role="tablist"
+          aria-label="Calculator"
+          className="mb-6 inline-flex gap-1 p-1 rounded-xl bg-slate-200/70"
+        >
+          {TOOLS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tool === item.id}
+              onClick={() => selectTool(item.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                          focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                            tool === item.id
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Mounted on first visit and kept mounted, so switching back and forth
+            never discards what was typed. The chunk is still only fetched if
+            the gratuity tab is opened at all. */}
+        {gratuityOpened && (
+          <div className={tool === "gratuity" ? undefined : "hidden"}>
+            <Suspense
+              fallback={
+                <p className="text-sm text-[color:var(--ink-muted)] py-6">
+                  Loading the gratuity calculator…
+                </p>
+              }
+            >
+              <GratuityCalculator />
+            </Suspense>
+          </div>
+        )}
+
+        <div
+          className={`${
+            tool === "tax" ? "grid" : "hidden"
+          } gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start`}
+        >
           {/* ── Step 1: the only field that is actually required ── */}
           <section className="lg:col-start-1 lg:row-start-1 rounded-2xl border border-slate-200 bg-white shadow-sm p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4 mb-4">
@@ -380,7 +425,7 @@ function App() {
           </div>
         </div>
 
-        {comparison && (
+        {tool === "tax" && comparison && (
           <div className="mt-5">
             <Suspense
               fallback={
@@ -395,9 +440,9 @@ function App() {
         )}
 
         <p className="mt-6 text-xs text-[color:var(--ink-muted)] max-w-3xl">
-          Salaried income only — capital gains, business income and other
-          special-rate income are not modelled. This is a calculator, not tax
-          advice.
+          {tool === "tax"
+            ? "Salaried income only — capital gains, business income and other special-rate income are not modelled. This is a calculator, not tax advice."
+            : "An estimate based on the statutory formula. Your employer's own scheme may be more generous, and continuous-service disputes turn on facts this cannot see. Not legal or tax advice."}
         </p>
       </div>
 

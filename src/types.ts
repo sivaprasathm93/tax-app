@@ -83,3 +83,61 @@ export interface ComparisonResult {
   difference: number;
   betterRegime: Regime | "equal";
 }
+
+/* ── Gratuity ───────────────────────────────────────────────────────────── */
+
+/** Whether the employer falls under the gratuity statute (10+ employees). */
+export type GratuityCoverage = "covered" | "notCovered";
+
+export type EmployerKind = "private" | "government";
+
+/** Fixed-term staff qualify after one year under the new labour codes. */
+export type EmploymentKind = "permanent" | "fixedTerm";
+
+export type ExitReason = "resignation" | "deathOrDisablement";
+
+export interface GratuityInput {
+  /** ISO yyyy-mm-dd, as produced by <input type="date">. */
+  joiningDate: string;
+  exitDate: string;
+  /** Last drawn basic + DA per month, or the 10-month average if not covered. */
+  monthlyWage: number;
+  /** Total monthly CTC; 0 when not supplied. Drives the 50% wage floor. */
+  monthlyCtc: number;
+  coverage: GratuityCoverage;
+  employerKind: EmployerKind;
+  employmentKind: EmploymentKind;
+  exitReason: ExitReason;
+  /** Actual payout where it differs from the entitlement; 0 means "same". */
+  amountReceived: number;
+}
+
+export interface ServiceDuration {
+  years: number;
+  months: number;
+  days: number;
+  totalDays: number;
+}
+
+export interface GratuityResult {
+  service: ServiceDuration;
+  /** Years actually used in the formula, after any rounding. */
+  qualifyingYears: number;
+  /** True when a part-year over six months was rounded up. */
+  roundedUp: boolean;
+  eligible: boolean;
+  minimumYears: number;
+  ineligibleReason?: string;
+  /** Monthly wage the formula ran on, after the 50%-of-CTC floor. */
+  wageBase: number;
+  wageFloorApplied: boolean;
+  /** Formula output before the statutory ceiling is applied. */
+  formulaAmount: number;
+  cappedByCeiling: boolean;
+  /** Payable entitlement, after the ceiling. */
+  entitlement: number;
+  amountReceived: number;
+  exemptAmount: number;
+  taxableAmount: number;
+  fullyExempt: boolean;
+}
