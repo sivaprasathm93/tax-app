@@ -21,8 +21,15 @@ export interface SlabTaxRow {
 }
 
 export interface DeductionLine {
+  /**
+   * Regime-independent identity, so the same concept can be lined up across
+   * both regimes in the comparison table even when the ceilings differ.
+   */
+  key: string;
   label: string;
   amount: number;
+  /** Explains a regime-specific ceiling, e.g. "14% of basic". */
+  note?: string;
   /** Set when the entered amount was trimmed to a statutory ceiling. */
   cappedFrom?: number;
 }
@@ -48,6 +55,8 @@ export interface TaxCalculation {
   totalTax: number;
   /** Total tax as a percentage of gross income. */
   effectiveRate: number;
+  /** Gross income less the total tax. */
+  takeHome: number;
 }
 
 export interface TaxInput {

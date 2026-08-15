@@ -1,6 +1,14 @@
 import { Suspense, lazy, useCallback, useMemo, useState } from "react";
-import { Calculator, HelpCircle, Heart, UtensilsCrossed } from "lucide-react";
+import {
+  BookOpen,
+  Heart,
+  Receipt,
+  RotateCcw,
+  UtensilsCrossed,
+} from "lucide-react";
 import { CurrencyField } from "./components/CurrencyField";
+import { FormSection } from "./components/FormSection";
+import { ResultPanel } from "./components/ResultPanel";
 import { calculateTaxComparison } from "./utils/taxCalculator";
 import {
   ASSESSMENT_YEAR,
@@ -13,10 +21,10 @@ import { AgeGroup, CityType, TaxInput } from "./types";
 import { formatCurrency } from "./utils/format";
 
 // Kept out of the initial bundle - neither is needed for the first paint.
-const HelpPanel = lazy(() => import("./components/HelpPanel"));
 const TaxBreakdown = lazy(() =>
   import("./components/TaxBreakdown").then((m) => ({ default: m.TaxBreakdown }))
 );
+const HelpPanel = lazy(() => import("./components/HelpPanel"));
 
 type FieldName = Exclude<keyof TaxInput, "ageGroup" | "cityType">;
 
@@ -37,310 +45,381 @@ const EMPTY_FORM: Record<FieldName, string> = {
 
 const AGE_OPTIONS: { value: AgeGroup; label: string }[] = [
   { value: "below60", label: "Below 60" },
-  { value: "senior", label: "60 to 79 (senior)" },
+  { value: "senior", label: "60 to 79" },
   { value: "superSenior", label: "80 and above" },
 ];
 
+const OLD_REGIME_FIELDS: FieldName[] = [
+  "hraReceived",
+  "section80C",
+  "section80CCD1B",
+  "section80D",
+  "section24B",
+  "savingsInterest",
+  "professionalTax",
+];
+
 const selectClass =
-  "w-full py-3 px-3 text-base border-2 border-blue-200 rounded-lg shadow-sm bg-white " +
-  "focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:outline-none transition-colors duration-200";
+  "w-full rounded-xl border border-slate-300 bg-white py-2.5 px-3 text-base text-slate-900 " +
+  "hover:border-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 focus:outline-none transition-colors";
+
+function Select({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-[13px] font-medium text-slate-700 mb-1.5">
+        {label}
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={selectClass}
+      >
+        {children}
+      </select>
+      {hint && (
+        <p className="mt-1.5 text-xs text-[color:var(--ink-muted)]">{hint}</p>
+      )}
+    </div>
+  );
+}
 
 function App() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [ageGroup, setAgeGroup] = useState<AgeGroup>("below60");
   const [cityType, setCityType] = useState<CityType>("metro");
-  const [showHelp, setShowHelp] = useState(false);
-  const [submitted, setSubmitted] = useState<TaxInput | null>(null);
 
   // Stable identity keeps every memoised CurrencyField from re-rendering.
   const handleFieldChange = useCallback((name: string, value: string) => {
     setForm((previous) => ({ ...previous, [name]: value }));
   }, []);
 
+  const handleReset = useCallback(() => setForm(EMPTY_FORM), []);
+
   const input = useMemo<TaxInput>(() => {
     const numbers = Object.fromEntries(
-      Object.entries(form).map(([key, value]) => [key, value === "" ? 0 : Number(value)])
+      Object.entries(form).map(([key, value]) => [
+        key,
+        value === "" ? 0 : Number(value),
+      ])
     ) as Record<FieldName, number>;
     return { ...numbers, ageGroup, cityType };
   }, [form, ageGroup, cityType]);
 
-  const handleCalculate = useCallback(() => setSubmitted(input), [input]);
-  const handleReset = useCallback(() => {
-    setForm(EMPTY_FORM);
-    setSubmitted(null);
-  }, []);
-  const toggleHelp = useCallback(() => setShowHelp((open) => !open), []);
-
-  // Only recomputed when the user actually submits, not on every keystroke.
+  // Live - the calculation is pure arithmetic, so there is no reason to make
+  // the user press a button and then hunt for the result.
   const comparison = useMemo(
-    () => (submitted && submitted.grossIncome > 0 ? calculateTaxComparison(submitted) : null),
-    [submitted]
+    () => (input.grossIncome > 0 ? calculateTaxComparison(input) : null),
+    [input]
   );
 
-  const savingsLabel =
+  const scrollToBreakdown = useCallback(() => {
+    document
+      .getElementById("breakdown")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const allowanceTotal =
+    Math.min(input.mealVouchers, MEAL_VOUCHER.annualCap) + input.employerNps;
+  const oldRegimeTotal = OLD_REGIME_FIELDS.reduce(
+    (total, field) => total + input[field],
+    0
+  );
+  const anyValue = Object.values(form).some((value) => value !== "");
+
+  const savingsLimit =
     ageGroup === "below60"
-      ? `Savings interest - 80TTA (max ${formatCurrency(DEDUCTION_LIMITS.section80TTA)})`
-      : `Interest income - 80TTB (max ${formatCurrency(DEDUCTION_LIMITS.section80TTB)})`;
+      ? DEDUCTION_LIMITS.section80TTA
+      : DEDUCTION_LIMITS.section80TTB;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-6 sm:py-12 px-4 flex flex-col">
-      <div className="max-w-7xl w-full mx-auto space-y-6 sm:space-y-8 flex-grow">
-        <header className="text-center">
-          <h1 className="text-2xl sm:text-3xl font-bold text-blue-900">
-            Income Tax Calculator FY {FINANCIAL_YEAR} (A.Y. {ASSESSMENT_YEAR})
+    <div className="min-h-screen flex flex-col">
+      <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 flex-grow">
+        <header className="mb-8">
+          <p className="text-xs font-semibold uppercase tracking-wider text-blue-700">
+            FY {FINANCIAL_YEAR} · A.Y. {ASSESSMENT_YEAR}
+          </p>
+          <h1 className="mt-1.5 text-2xl sm:text-[2rem] font-semibold tracking-tight text-slate-900">
+            Income Tax Calculator
           </h1>
-          <p className="mt-2 text-sm sm:text-base text-blue-700/80 max-w-2xl mx-auto">
-            Compare your liability under the old and new regimes using the
-            Income-tax Act, 2025 and Income-tax Rules, 2026, both in force from
-            1 April 2026.
+          <p className="mt-2 text-[15px] text-[color:var(--ink-secondary)] max-w-2xl">
+            Old regime versus new, worked out as you type. Rules from the
+            Income-tax Act, 2025 and the Income-tax Rules, 2026 — both in force
+            from 1 April 2026.
           </p>
         </header>
 
-        <div className="bg-white rounded-xl shadow-lg shadow-blue-100/50 p-6 sm:p-8 max-w-2xl mx-auto border border-blue-100/50">
-          <div className="space-y-5">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+          {/* ── Step 1: the only field that is actually required ── */}
+          <section className="lg:col-start-1 lg:row-start-1 rounded-2xl border border-slate-200 bg-white shadow-sm p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-[15px] font-semibold text-slate-900">
+                  Your income
+                </h2>
+                <p className="text-xs text-[color:var(--ink-muted)]">
+                  Start here — everything below is optional.
+                </p>
+              </div>
+              {anyValue && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500
+                             hover:text-slate-800 rounded-lg px-2 py-1 hover:bg-slate-100 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                  Clear all
+                </button>
+              )}
+            </div>
+
             <CurrencyField
               id="grossIncome"
               label="Gross annual salary"
               value={form.grossIncome}
               onChange={handleFieldChange}
-              placeholder="Enter your gross annual salary"
+              placeholder="0"
+              size="lead"
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="ageGroup"
-                  className="block text-sm font-semibold text-blue-900 mb-1.5"
-                >
-                  Age group
-                </label>
-                <select
-                  id="ageGroup"
-                  value={ageGroup}
-                  onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}
-                  className={selectClass}
-                >
-                  {AGE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-blue-600/70">
-                  Sets the old regime basic exemption.
-                </p>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="cityType"
-                  className="block text-sm font-semibold text-blue-900 mb-1.5"
-                >
-                  City of residence
-                </label>
-                <select
-                  id="cityType"
-                  value={cityType}
-                  onChange={(e) => setCityType(e.target.value as CityType)}
-                  className={selectClass}
-                >
-                  <option value="metro">Metro (50% HRA)</option>
-                  <option value="nonMetro">Non-metro (40% HRA)</option>
-                </select>
-                <p className="mt-1 text-xs text-blue-600/70">
-                  Metro from 1 Apr 2026: {METRO_CITIES.join(", ")}.
-                </p>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+              <Select
+                id="ageGroup"
+                label="Age group"
+                hint="Sets the old regime basic exemption."
+                value={ageGroup}
+                onChange={(value) => setAgeGroup(value as AgeGroup)}
+              >
+                {AGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                id="cityType"
+                label="City of residence"
+                hint={`Metro since 1 Apr 2026: ${METRO_CITIES.join(", ")}.`}
+                value={cityType}
+                onChange={(value) => setCityType(value as CityType)}
+              >
+                <option value="metro">Metro — 50% HRA</option>
+                <option value="nonMetro">Non-metro — 40% HRA</option>
+              </Select>
             </div>
+          </section>
 
-            <CurrencyField
-              id="basicSalary"
-              label="Basic salary + DA (annual)"
-              value={form.basicSalary}
-              onChange={handleFieldChange}
-              hint="Used for the HRA and employer NPS ceilings."
+          {/* ── The answer. Sticky beside the form on desktop; directly under
+                 the income field on mobile, so it is never hunted for. ── */}
+          <div className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:sticky lg:top-6">
+            <ResultPanel
+              comparison={comparison}
+              onSeeBreakdown={scrollToBreakdown}
             />
+          </div>
 
-            <section className="rounded-lg border-2 border-emerald-200 bg-emerald-50/60 p-4">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-emerald-900 mb-1">
-                <UtensilsCrossed className="w-4 h-4" aria-hidden="true" />
-                Meal voucher scheme - new this year
-              </h2>
-              <p className="text-xs text-emerald-900/80 mb-3">
-                Rule 15(5)(a) of the Income-tax Rules, 2026 raised the exempt
-                value to ₹{MEAL_VOUCHER.perMeal} per meal from 1 April 2026, and
-                the benefit now applies under <strong>both</strong> regimes.
-                Cash meal allowances stay fully taxable.
-              </p>
+          {/* ── The optional detail, folded away until wanted ── */}
+          <div className="lg:col-start-1 lg:row-start-2 space-y-3">
+            <FormSection
+              title="Tax-free allowances"
+              description="Reduce your tax under both regimes"
+              summary={
+                allowanceTotal > 0
+                  ? `${formatCurrency(allowanceTotal)} claimed`
+                  : "Meal vouchers, employer NPS"
+              }
+              icon={<UtensilsCrossed className="w-[18px] h-[18px]" />}
+              accent
+            >
+              <div className="rounded-xl bg-emerald-50/70 border border-emerald-100 px-3.5 py-3">
+                <p className="text-xs text-emerald-900">
+                  <strong>New this year.</strong> Rule 15(5)(a) raised meal
+                  vouchers from ₹50 to ₹{MEAL_VOUCHER.perMeal} a meal on 1 April
+                  2026, and they now count under{" "}
+                  <strong>both</strong> regimes. Cash meal allowances still do
+                  not qualify.
+                </p>
+              </div>
+
               <CurrencyField
                 id="mealVouchers"
-                label="Meal vouchers / food card received (annual)"
+                label="Meal vouchers / food card"
                 value={form.mealVouchers}
                 onChange={handleFieldChange}
                 max={MEAL_VOUCHER.annualCap}
-                hint={`Max ${formatCurrency(MEAL_VOUCHER.annualCap)} = ₹${MEAL_VOUCHER.perMeal} × ${MEAL_VOUCHER.mealsPerDay} meals × ${MEAL_VOUCHER.workingDaysPerMonth} days × ${MEAL_VOUCHER.monthsPerYear} months.`}
+                hint={`Up to ${formatCurrency(MEAL_VOUCHER.annualCap)} a year — ₹${MEAL_VOUCHER.perMeal} × ${MEAL_VOUCHER.mealsPerDay} meals × ${MEAL_VOUCHER.workingDaysPerMonth} days × ${MEAL_VOUCHER.monthsPerYear} months.`}
               />
-            </section>
+              <CurrencyField
+                id="basicSalary"
+                label="Basic salary + DA"
+                value={form.basicSalary}
+                onChange={handleFieldChange}
+                hint="Sets the ceiling for HRA and employer NPS below."
+              />
+              <CurrencyField
+                id="employerNps"
+                label="Employer NPS contribution"
+                value={form.employerNps}
+                onChange={handleFieldChange}
+                hint="Sec 80CCD(2) — 14% of basic under the new regime, 10% under the old."
+              />
+            </FormSection>
 
-            <CurrencyField
-              id="employerNps"
-              label="Employer NPS contribution - Sec 80CCD(2)"
-              value={form.employerNps}
-              onChange={handleFieldChange}
-              hint="Allowed in both regimes: 14% of basic (new), 10% (old)."
-            />
-
-            <fieldset className="space-y-5 border-t border-blue-100 pt-5">
-              <legend className="text-sm font-semibold text-blue-900 mb-1">
-                Old regime only
-              </legend>
-
+            <FormSection
+              title="Old regime deductions"
+              description="Ignored entirely under the new regime"
+              summary={
+                oldRegimeTotal > 0
+                  ? `${formatCurrency(oldRegimeTotal)} claimed`
+                  : "HRA, 80C, 80D, home loan — skip if you use the new regime"
+              }
+              icon={<Receipt className="w-[18px] h-[18px]" />}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <CurrencyField
                   id="hraReceived"
-                  label="HRA received (annual)"
+                  label="HRA received"
                   value={form.hraReceived}
                   onChange={handleFieldChange}
                 />
                 <CurrencyField
                   id="rentPaid"
-                  label="Rent paid (annual)"
+                  label="Rent paid"
                   value={form.rentPaid}
                   onChange={handleFieldChange}
                 />
               </div>
 
-              <CurrencyField
-                id="section80C"
-                label="Section 80C"
-                value={form.section80C}
-                onChange={handleFieldChange}
-                max={DEDUCTION_LIMITS.section80C}
-                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80C)} - PF, ELSS, life insurance, tuition fees.`}
-              />
-              <CurrencyField
-                id="section80CCD1B"
-                label="Section 80CCD(1B) - own NPS"
-                value={form.section80CCD1B}
-                onChange={handleFieldChange}
-                max={DEDUCTION_LIMITS.section80CCD1B}
-                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80CCD1B)}, over and above 80C.`}
-              />
-              <CurrencyField
-                id="section80D"
-                label="Section 80D - health insurance"
-                value={form.section80D}
-                onChange={handleFieldChange}
-                max={DEDUCTION_LIMITS.section80D}
-                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section80D)} including senior citizen parents.`}
-              />
-              <CurrencyField
-                id="section24B"
-                label="Section 24(b) - home loan interest"
-                value={form.section24B}
-                onChange={handleFieldChange}
-                max={DEDUCTION_LIMITS.section24B}
-                hint={`Max ${formatCurrency(DEDUCTION_LIMITS.section24B)} for a self-occupied property.`}
-              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <CurrencyField
+                  id="section80C"
+                  label="Section 80C"
+                  value={form.section80C}
+                  onChange={handleFieldChange}
+                  max={DEDUCTION_LIMITS.section80C}
+                  hint="PF, ELSS, insurance, tuition"
+                />
+                <CurrencyField
+                  id="section80CCD1B"
+                  label="Section 80CCD(1B)"
+                  value={form.section80CCD1B}
+                  onChange={handleFieldChange}
+                  max={DEDUCTION_LIMITS.section80CCD1B}
+                  hint="Your own NPS, over and above 80C"
+                />
+                <CurrencyField
+                  id="section80D"
+                  label="Section 80D"
+                  value={form.section80D}
+                  onChange={handleFieldChange}
+                  max={DEDUCTION_LIMITS.section80D}
+                  hint="Health insurance premiums"
+                />
+                <CurrencyField
+                  id="section24B"
+                  label="Section 24(b)"
+                  value={form.section24B}
+                  onChange={handleFieldChange}
+                  max={DEDUCTION_LIMITS.section24B}
+                  hint="Home loan interest"
+                />
+                <CurrencyField
                   id="savingsInterest"
-                  label={savingsLabel}
+                  label={ageGroup === "below60" ? "Section 80TTA" : "Section 80TTB"}
                   value={form.savingsInterest}
                   onChange={handleFieldChange}
-                  max={
+                  max={savingsLimit}
+                  hint={
                     ageGroup === "below60"
-                      ? DEDUCTION_LIMITS.section80TTA
-                      : DEDUCTION_LIMITS.section80TTB
+                      ? "Savings account interest"
+                      : "Interest income, senior citizens"
                   }
                 />
                 <CurrencyField
                   id="professionalTax"
-                  label="Professional tax paid"
+                  label="Professional tax"
                   value={form.professionalTax}
                   onChange={handleFieldChange}
                   max={DEDUCTION_LIMITS.professionalTax}
-                  hint={`Max ${formatCurrency(DEDUCTION_LIMITS.professionalTax)} a year.`}
+                  hint="Deducted by your employer"
                 />
               </div>
-            </fieldset>
+            </FormSection>
 
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button
-                type="button"
-                onClick={handleCalculate}
-                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3.5 rounded-lg
-                           hover:bg-blue-700 active:bg-blue-800 transition-colors duration-200 text-base font-medium
-                           shadow-md shadow-blue-600/20"
-              >
-                <Calculator className="w-5 h-5" aria-hidden="true" />
-                Calculate tax
-              </button>
-              <button
-                type="button"
-                onClick={handleReset}
-                className="sm:w-32 px-6 py-3.5 rounded-lg border-2 border-blue-200 text-blue-700
-                           hover:bg-blue-50 transition-colors duration-200 text-base font-medium"
-              >
-                Reset
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={toggleHelp}
-              aria-expanded={showHelp}
-              className="w-full flex items-center justify-center gap-2 text-blue-700 hover:text-blue-800
-                         py-2 rounded-lg hover:bg-blue-50/50 transition-colors duration-200 text-base"
+            <FormSection
+              title="This year's rules"
+              description="Slabs, ceilings and what changed on 1 April 2026"
+              summary="Slabs, ceilings and what changed on 1 April 2026"
+              icon={<BookOpen className="w-[18px] h-[18px]" />}
             >
-              <HelpCircle className="w-5 h-5" aria-hidden="true" />
-              {showHelp ? "Hide rules for this year" : "Show rules for this year"}
-            </button>
-
-            {showHelp && (
               <Suspense
                 fallback={
-                  <p className="text-center text-sm text-blue-600 py-4">
+                  <p className="text-sm text-[color:var(--ink-muted)] py-2">
                     Loading rules…
                   </p>
                 }
               >
                 <HelpPanel ageGroup={ageGroup} />
               </Suspense>
-            )}
+            </FormSection>
           </div>
         </div>
 
         {comparison && (
-          <Suspense
-            fallback={
-              <p className="text-center text-sm text-blue-600 py-4">
-                Preparing your breakdown…
-              </p>
-            }
-          >
-            <TaxBreakdown comparison={comparison} />
-          </Suspense>
+          <div className="mt-5">
+            <Suspense
+              fallback={
+                <p className="text-center text-sm text-[color:var(--ink-muted)] py-6">
+                  Preparing the breakdown…
+                </p>
+              }
+            >
+              <TaxBreakdown comparison={comparison} />
+            </Suspense>
+          </div>
         )}
+
+        <p className="mt-6 text-xs text-[color:var(--ink-muted)] max-w-3xl">
+          Salaried income only — capital gains, business income and other
+          special-rate income are not modelled. This is a calculator, not tax
+          advice.
+        </p>
       </div>
 
-      <footer className="text-center py-6 text-sm text-blue-600 flex flex-col items-center gap-1.5">
-        <div className="flex items-center gap-1.5">
-          Made with
-          <Heart
-            className="w-4 h-4 text-red-500 fill-current"
-            aria-hidden="true"
-          />
-          for tax payers from Sivaprasath
+      <footer className="border-t border-slate-200/80 py-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-[color:var(--ink-muted)]">
+          <span className="inline-flex items-center gap-1.5">
+            Made with
+            <Heart
+              className="w-4 h-4 text-red-500 fill-current"
+              aria-hidden="true"
+            />
+            for tax payers from Sivaprasath
+          </span>
+          <a
+            href="https://github.com/sivaprasathm93/tax-app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-slate-900 underline underline-offset-2 transition-colors"
+          >
+            GitHub repository
+          </a>
         </div>
-        <a
-          href="https://github.com/sivaprasathm93/tax-app"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-blue-800"
-        >
-          GitHub repository
-        </a>
       </footer>
     </div>
   );

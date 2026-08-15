@@ -10,21 +10,23 @@ interface Props {
 function slabRange(slab: TaxSlab): string {
   if (slab.from === 0) return `Up to ${formatCurrency(slab.upTo ?? 0)}`;
   if (slab.upTo === null) return `Above ${formatCurrency(slab.from)}`;
-  return `${formatCurrency(slab.from)} - ${formatCurrency(slab.upTo)}`;
+  return `${formatCurrency(slab.from)} – ${formatCurrency(slab.upTo)}`;
 }
 
 export const TaxSlabTable = memo(function TaxSlabTable({ title, slabs }: Props) {
   return (
     <div>
-      <h3 className="text-base font-semibold text-blue-900 mb-3">{title}</h3>
-      <ul className="divide-y divide-blue-100 rounded-lg border border-blue-100 bg-white/70">
+      <h3 className="text-[15px] font-semibold text-slate-900 mb-2">{title}</h3>
+      <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
         {slabs.map((slab) => (
           <li
             key={slab.from}
-            className="flex items-center justify-between px-4 py-2.5 text-sm"
+            className="flex items-center justify-between gap-3 px-3.5 py-2 text-sm"
           >
-            <span className="text-blue-800">{slabRange(slab)}</span>
-            <span className="font-semibold text-blue-900 tabular-nums">
+            <span className="text-[color:var(--ink-secondary)]">
+              {slabRange(slab)}
+            </span>
+            <span className="font-semibold text-slate-900 tabular-nums">
               {slab.rate}%
             </span>
           </li>

@@ -1,3 +1,39 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  color-scheme: light;
+
+  /* Chart roles. The regime comparison is an EMPHASIS chart: the regime that
+     costs less wears the accent, the other stays recessive gray. Both were
+     validated against the white card surface - accent 4.42:1, muted 3.46:1,
+     CVD separation dE 16.1 (target >= 8). */
+  --viz-accent: #2a78d6;
+  --viz-muted: #8b8a83;
+  --viz-track: #eef2f7;
+
+  /* Ink. Values and labels never wear the data color. */
+  --ink-primary: #0b1524;
+  --ink-secondary: #475569;
+  --ink-muted: #6b7280;
+  --ink-success: #006300;
+}
+
+body {
+  background-color: #f6f9fe;
+  color: var(--ink-primary);
+  /* Expanding a section must push content down, not scroll the viewport to
+     chase whatever the browser had anchored below it. */
+  overflow-anchor: none;
+}
+
+/* Respect users who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

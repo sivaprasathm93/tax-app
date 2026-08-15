@@ -8,7 +8,6 @@ import {
   FINANCIAL_YEAR,
   HRA_SALARY_PERCENT,
   MEAL_VOUCHER,
-  METRO_CITIES,
   NEW_REGIME_SLABS,
   OLD_REGIME_SLABS,
   REBATE_87A,
@@ -23,11 +22,12 @@ interface Props {
 
 /**
  * Lazily loaded from App - the reference tables are only mounted when the
- * user actually opens help, keeping them out of the first paint.
+ * user actually opens this section, keeping them out of the first paint.
+ * It renders inside a FormSection, so it carries no card chrome of its own.
  */
 const HelpPanel = memo(function HelpPanel({ ageGroup }: Props) {
   return (
-    <div className="bg-blue-50/60 p-5 rounded-lg text-sm border border-blue-100 space-y-6">
+    <div className="text-sm space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <TaxSlabTable
           title={`Old regime slabs (FY ${FINANCIAL_YEAR})`}
@@ -74,8 +74,8 @@ const HelpPanel = memo(function HelpPanel({ ageGroup }: Props) {
         </ul>
       </section>
 
-      <section className="space-y-2 text-blue-900/90">
-        <h3 className="text-base font-semibold text-blue-900">
+      <section className="space-y-2 text-[color:var(--ink-secondary)]">
+        <h3 className="text-[15px] font-semibold text-slate-900">
           Other rules applied for A.Y. {ASSESSMENT_YEAR}
         </h3>
         <p>
@@ -94,9 +94,9 @@ const HelpPanel = memo(function HelpPanel({ ageGroup }: Props) {
         <p>
           <strong>HRA (old regime only):</strong> the least of actual HRA, rent
           paid minus 10% of basic, and {HRA_SALARY_PERCENT.metro}% of basic in a
-          metro / {HRA_SALARY_PERCENT.nonMetro}% elsewhere. From 1 April 2026
-          the {HRA_SALARY_PERCENT.metro}% metro list is {METRO_CITIES.join(", ")}{" "}
-          — Bengaluru, Pune, Hyderabad and Ahmedabad were added this year.
+          metro / {HRA_SALARY_PERCENT.nonMetro}% elsewhere. On 1 April 2026 the{" "}
+          {HRA_SALARY_PERCENT.metro}% metro list grew from Delhi, Mumbai,
+          Kolkata and Chennai to add Bengaluru, Pune, Hyderabad and Ahmedabad.
         </p>
         <p>
           <strong>Employer NPS — Sec 80CCD(2):</strong> allowed in both regimes,
@@ -120,11 +120,6 @@ const HelpPanel = memo(function HelpPanel({ ageGroup }: Props) {
         </p>
       </section>
 
-      <p className="text-xs text-blue-700/70 border-t border-blue-200 pt-3">
-        This calculator covers salaried income only. Capital gains, business
-        income and other special-rate income are not modelled, and it is not a
-        substitute for professional tax advice.
-      </p>
     </div>
   );
 });

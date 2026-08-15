@@ -28,15 +28,21 @@ function safe(value: number | undefined): number {
 }
 
 function line(
+  key: string,
   label: string,
   entered: number,
-  limit = Infinity
+  limit = Infinity,
+  note?: string
 ): DeductionLine | null {
   const amount = Math.min(safe(entered), limit);
   if (amount <= 0) return null;
-  return amount < safe(entered)
-    ? { label, amount, cappedFrom: safe(entered) }
-    : { label, amount };
+  return {
+    key,
+    label,
+    amount,
+    ...(note ? { note } : {}),
+    ...(amount < safe(entered) ? { cappedFrom: safe(entered) } : {}),
+  };
 }
 
 function sum(lines: DeductionLine[]): number {
@@ -135,9 +141,11 @@ function buildExemptions(input: TaxInput, regime: Regime): DeductionLine[] {
   const lines: DeductionLine[] = [];
 
   const meal = line(
-    `Meal vouchers (Rule 15(5)(a), max ${MEAL_VOUCHER.annualCap.toLocaleString("en-IN")})`,
+    "mealVouchers",
+    "Meal vouchers",
     input.mealVouchers,
-    MEAL_VOUCHER.annualCap
+    MEAL_VOUCHER.annualCap,
+    "Rule 15(5)(a)"
   );
   if (meal) lines.push(meal);
 
@@ -149,7 +157,12 @@ function buildExemptions(input: TaxInput, regime: Regime): DeductionLine[] {
       input.cityType
     );
     if (hraExempt > 0) {
-      lines.push({ label: "HRA exemption (Sec 10(13A))", amount: hraExempt });
+      lines.push({
+        key: "hra",
+        label: "HRA exemption",
+        amount: hraExempt,
+        note: "Sec 10(13A)",
+      });
     }
   }
 
@@ -161,6 +174,7 @@ function buildDeductions(input: TaxInput, regime: Regime): DeductionLine[] {
   const lines: DeductionLine[] = [];
 
   lines.push({
+    key: "standardDeduction",
     label: "Standard deduction",
     amount: STANDARD_DEDUCTION[regime],
   });
@@ -168,40 +182,54 @@ function buildDeductions(input: TaxInput, regime: Regime): DeductionLine[] {
   // Employer NPS survives in both regimes, at different ceilings.
   const npsCeiling = (safe(input.basicSalary) * EMPLOYER_NPS_PERCENT[regime]) / 100;
   const employerNps = line(
-    `Employer NPS - Sec 80CCD(2) (max ${EMPLOYER_NPS_PERCENT[regime]}% of basic)`,
+    "employerNps",
+    "Employer NPS",
     input.employerNps,
-    npsCeiling
+    npsCeiling,
+    `Sec 80CCD(2), ${EMPLOYER_NPS_PERCENT[regime]}% of basic`
   );
   if (employerNps) lines.push(employerNps);
 
   if (regime === "old") {
     const optional: (DeductionLine | null)[] = [
-      line("Section 80C", input.section80C, DEDUCTION_LIMITS.section80C),
       line(
-        "Section 80CCD(1B) - NPS self",
+        "section80C",
+        "Section 80C",
+        input.section80C,
+        DEDUCTION_LIMITS.section80C
+      ),
+      line(
+        "section80CCD1B",
+        "Section 80CCD(1B)",
         input.section80CCD1B,
-        DEDUCTION_LIMITS.section80CCD1B
+        DEDUCTION_LIMITS.section80CCD1B,
+        "NPS - own contribution"
       ),
       line(
-        "Section 80D - health insurance",
+        "section80D",
+        "Section 80D",
         input.section80D,
-        DEDUCTION_LIMITS.section80D
+        DEDUCTION_LIMITS.section80D,
+        "Health insurance"
       ),
       line(
-        "Section 24(b) - home loan interest",
+        "section24B",
+        "Section 24(b)",
         input.section24B,
-        DEDUCTION_LIMITS.section24B
+        DEDUCTION_LIMITS.section24B,
+        "Home loan interest"
       ),
       line(
-        input.ageGroup === "below60"
-          ? "Section 80TTA - savings interest"
-          : "Section 80TTB - interest income",
+        "savingsInterest",
+        input.ageGroup === "below60" ? "Section 80TTA" : "Section 80TTB",
         input.savingsInterest,
         input.ageGroup === "below60"
           ? DEDUCTION_LIMITS.section80TTA
-          : DEDUCTION_LIMITS.section80TTB
+          : DEDUCTION_LIMITS.section80TTB,
+        input.ageGroup === "below60" ? "Savings interest" : "Interest income"
       ),
       line(
+        "professionalTax",
         "Professional tax",
         input.professionalTax,
         DEDUCTION_LIMITS.professionalTax
@@ -278,6 +306,7 @@ export function calculateTax(input: TaxInput, regime: Regime): TaxCalculation {
     cess,
     totalTax,
     effectiveRate: grossIncome > 0 ? (totalTax / grossIncome) * 100 : 0,
+    takeHome: Math.max(0, grossIncome - totalTax),
   };
 }
 
