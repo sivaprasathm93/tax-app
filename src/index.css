@@ -37,3 +37,56 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Printing ───────────────────────────────────────────────────────────────
+   Documents are staged into #print-root by PrintProvider and are the only
+   thing that reaches the page. Swapping which subtree is displayed, rather
+   than hiding the app with visibility, keeps the printed document at the top
+   of page one instead of leaving the app's full height as white space above
+   it. */
+
+#print-root {
+  display: none;
+}
+
+@media print {
+  body {
+    background: #fff;
+    /* Printers drop backgrounds by default; the documents are designed in
+       black on white so nothing is lost when they do. */
+    color: #000;
+  }
+
+  #app-root {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block;
+  }
+
+  /* Anything interactive is meaningless on paper. */
+  .no-print {
+    display: none !important;
+  }
+
+  .print-page {
+    /* One receipt per sheet, so each can be signed and handed over separately. */
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}

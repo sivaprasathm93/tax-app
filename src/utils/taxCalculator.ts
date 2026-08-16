@@ -11,6 +11,7 @@ import {
   SURCHARGE_BANDS,
 } from "../constants/taxRules";
 import {
+  AgeGroup,
   ComparisonResult,
   DeductionLine,
   Regime,
@@ -99,7 +100,7 @@ export function computeHraExemption(
  * Surcharge on income above the band thresholds, with marginal relief so that
  * crossing a threshold never costs more than the income earned beyond it.
  */
-function computeSurcharge(
+export function computeSurcharge(
   taxableIncome: number,
   taxAfterRebate: number,
   slabs: TaxSlab[],
@@ -149,6 +150,31 @@ function buildExemptions(input: TaxInput, regime: Regime): DeductionLine[] {
   );
   if (meal) lines.push(meal);
 
+  // Bills reimbursed for official use are not a perquisite in the first place,
+  // so section 115BAC does not withdraw them the way it withdraws LTA.
+  const reimbursed = line(
+    "reimbursements",
+    "Telephone, internet & books",
+    input.reimbursements,
+    Infinity,
+    "Rule 3(7)(ix) - against bills"
+  );
+  if (reimbursed) lines.push(reimbursed);
+
+  // A car scheme is not an exemption but a valuation: the cost leaves salary
+  // and a fixed statutory perquisite comes back in its place. The net of the
+  // two is what actually reduces taxable income, so that is what is shown.
+  // Being a valuation rule, section 115BAC does not withdraw it.
+  const carRelief = safe(input.carLease) - safe(input.carPerquisite);
+  if (carRelief > 0) {
+    lines.push({
+      key: "carLease",
+      label: "Car lease, fuel & driver",
+      amount: carRelief,
+      note: `Rule 3(7)(vii) - taxed on ${Math.round(safe(input.carPerquisite)).toLocaleString("en-IN")} of perquisite`,
+    });
+  }
+
   if (regime === "old") {
     const hraExempt = computeHraExemption(
       input.hraReceived,
@@ -164,6 +190,9 @@ function buildExemptions(input: TaxInput, regime: Regime): DeductionLine[] {
         note: "Sec 10(13A)",
       });
     }
+
+    const lta = line("lta", "Leave travel concession", input.lta, Infinity, "Sec 10(5)");
+    if (lta) lines.push(lta);
   }
 
   return lines;
@@ -241,10 +270,79 @@ function buildDeductions(input: TaxInput, regime: Regime): DeductionLine[] {
   return lines;
 }
 
+/** The tax charge itself, once taxable income is known. */
+export interface TaxCharge {
+  slabwiseTax: SlabTaxRow[];
+  taxBeforeRebate: number;
+  rebate: number;
+  rebateMarginalRelief: number;
+  surcharge: number;
+  surchargeMarginalRelief: number;
+  cess: number;
+  totalTax: number;
+}
+
+/**
+ * Slabs, rebate, surcharge and cess applied to a taxable income figure.
+ *
+ * Split out of calculateTax so the breakeven solver and the advance tax
+ * planner can charge an arbitrary income without rebuilding a TaxInput around
+ * it - and, more to the point, without either of them re-implementing section
+ * 87A marginal relief slightly differently.
+ */
+export function taxOnTaxableIncome(
+  taxableIncome: number,
+  regime: Regime,
+  ageGroup: AgeGroup
+): TaxCharge {
+  const slabs = regime === "new" ? NEW_REGIME_SLABS : OLD_REGIME_SLABS[ageGroup];
+  const income = Math.max(0, taxableIncome);
+
+  const { tax: taxBeforeRebate, rows: slabwiseTax } = computeSlabTax(
+    income,
+    slabs
+  );
+
+  // Section 87A rebate, plus marginal relief where the regime provides it.
+  const rebateRule = REBATE_87A[regime];
+  let rebate = 0;
+  let rebateMarginalRelief = 0;
+
+  if (income <= rebateRule.incomeCeiling) {
+    rebate = Math.min(taxBeforeRebate, rebateRule.maxRebate);
+  } else if (rebateRule.marginalRelief) {
+    // Tax must never exceed the income earned above the rebate ceiling.
+    const incomeAboveCeiling = income - rebateRule.incomeCeiling;
+    if (taxBeforeRebate > incomeAboveCeiling) {
+      rebateMarginalRelief = taxBeforeRebate - incomeAboveCeiling;
+    }
+  }
+
+  const taxAfterRebate = Math.max(
+    0,
+    taxBeforeRebate - rebate - rebateMarginalRelief
+  );
+
+  const { surcharge, marginalRelief: surchargeMarginalRelief } =
+    computeSurcharge(income, taxAfterRebate, slabs, regime);
+
+  const taxPlusSurcharge = taxAfterRebate + surcharge - surchargeMarginalRelief;
+  const cess = (taxPlusSurcharge * CESS_RATE) / 100;
+
+  return {
+    slabwiseTax,
+    taxBeforeRebate,
+    rebate,
+    rebateMarginalRelief,
+    surcharge,
+    surchargeMarginalRelief,
+    cess,
+    totalTax: Math.round(taxPlusSurcharge + cess),
+  };
+}
+
 export function calculateTax(input: TaxInput, regime: Regime): TaxCalculation {
   const grossIncome = safe(input.grossIncome);
-  const slabs =
-    regime === "new" ? NEW_REGIME_SLABS : OLD_REGIME_SLABS[input.ageGroup];
 
   const exemptions = grossIncome > 0 ? buildExemptions(input, regime) : [];
   const totalExemptions = sum(exemptions);
@@ -257,37 +355,7 @@ export function calculateTax(input: TaxInput, regime: Regime): TaxCalculation {
     grossIncome - totalExemptions - totalDeductions
   );
 
-  const { tax: taxBeforeRebate, rows: slabwiseTax } = computeSlabTax(
-    taxableIncome,
-    slabs
-  );
-
-  // Section 87A rebate, plus marginal relief where the regime provides it.
-  const rebateRule = REBATE_87A[regime];
-  let rebate = 0;
-  let rebateMarginalRelief = 0;
-
-  if (taxableIncome <= rebateRule.incomeCeiling) {
-    rebate = Math.min(taxBeforeRebate, rebateRule.maxRebate);
-  } else if (rebateRule.marginalRelief) {
-    // Tax must never exceed the income earned above the rebate ceiling.
-    const incomeAboveCeiling = taxableIncome - rebateRule.incomeCeiling;
-    if (taxBeforeRebate > incomeAboveCeiling) {
-      rebateMarginalRelief = taxBeforeRebate - incomeAboveCeiling;
-    }
-  }
-
-  const taxAfterRebate = Math.max(
-    0,
-    taxBeforeRebate - rebate - rebateMarginalRelief
-  );
-
-  const { surcharge, marginalRelief: surchargeMarginalRelief } =
-    computeSurcharge(taxableIncome, taxAfterRebate, slabs, regime);
-
-  const taxPlusSurcharge = taxAfterRebate + surcharge - surchargeMarginalRelief;
-  const cess = (taxPlusSurcharge * CESS_RATE) / 100;
-  const totalTax = Math.round(taxPlusSurcharge + cess);
+  const charge = taxOnTaxableIncome(taxableIncome, regime, input.ageGroup);
 
   return {
     regime,
@@ -297,16 +365,9 @@ export function calculateTax(input: TaxInput, regime: Regime): TaxCalculation {
     totalExemptions,
     totalDeductions,
     taxableIncome,
-    slabwiseTax,
-    taxBeforeRebate,
-    rebate,
-    rebateMarginalRelief,
-    surcharge,
-    surchargeMarginalRelief,
-    cess,
-    totalTax,
-    effectiveRate: grossIncome > 0 ? (totalTax / grossIncome) * 100 : 0,
-    takeHome: Math.max(0, grossIncome - totalTax),
+    ...charge,
+    effectiveRate: grossIncome > 0 ? (charge.totalTax / grossIncome) * 100 : 0,
+    takeHome: Math.max(0, grossIncome - charge.totalTax),
   };
 }
 
